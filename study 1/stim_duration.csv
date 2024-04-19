@@ -1,0 +1,17 @@
+scene,lang,duration,samples
+bright_happy,English,34,3200
+bright_lotr,English,29,2800
+bright_neutral,English,23,2200
+bright_to_dark,English,32,3100
+dark_happy,English,32,3200
+dark_lotr,English,28,2800
+dark_neutral,English,22,2200
+dark_to_bright,English,31,3100
+bright_happy,Dutch,37,3400
+bright_lotr,Dutch,35,3100
+bright_neutral,Dutch,22,2200
+bright_to_dark,Dutch,35,3100
+dark_happy,Dutch,34,3400
+dark_lotr,Dutch,31,3100
+dark_neutral,Dutch,22,2200
+dark_to_bright,Dutch,31,3100
