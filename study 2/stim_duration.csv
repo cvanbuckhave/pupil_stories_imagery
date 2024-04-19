@@ -1,0 +1,9 @@
+scene,lang,duration,samples
+bright_v1,English,118,11700
+dark_v1,English,123,11700
+bright_v2,English,132,12500
+dark_v2,English,127,12500
+light_self_v1,English,30,3000
+dark_self_v1,English,30,3000
+light_self_v2,English,30,3000
+dark_self_v2,English,30,3000
