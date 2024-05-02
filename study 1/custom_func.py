@@ -25,7 +25,7 @@ import scipy.stats as stats
 import statsmodels.api as sm
 import pingouin as pg
 from statsmodels.formula.api import mixedlm
-from scipy.stats import spearmanr, shapiro, kstest
+from scipy.stats import spearmanr, shapiro, kstest, wilcoxon
 from statsmodels.stats.diagnostic import het_white
 from scipy.stats.distributions import chi2
 from collections import Counter
@@ -150,7 +150,7 @@ def get_raw(path, dataframe):
               dm.correct_answer, dm.emotional_intensity, dm.suptype, dm.dur,
               dm.type, dm.subtype, dm.scene, dm.trialid, dm.duration, dm.stimID, 
               dm.response_lang, dm.blinkstlist_fixation, dm.blinkstlist_target,
-              dm.fixylist_target, dm.fixxlist_target]
+              dm.fixylist_target, dm.fixxlist_target, dm.trace_length_target]
 
 def create_control_variables(original_dm):
     """All the control variables."""
@@ -177,12 +177,6 @@ def create_control_variables(original_dm):
     # Mean of changes that can affect pupil size
     dm.changes = (dm.effort_changes + dm.emo_changes)/2
 
-    # How many non-nan values in the pupil time series?
-    dm.nonnan_pupil = NAN
-    for p, t, sdm in ops.split(dm.subject_nr, dm.stimID):
-        dm.nonnan_pupil[sdm] = int((count_nonnan(sdm.pupil[:, :int(sdm.duration[0])]) / sdm.duration) * 100)
-    print(f'/!\ {len(dm.subject_nr[dm.nonnan_pupil < 50])} trials with very few non-nan values ({list(dm.nonnan_pupil[dm.nonnan_pupil < 50])}% of non-nan values)')
-
     # Keep track of trialid / presentation order
     dm.order_changes = NAN
     for p, s, sdm in ops.split(dm.subject_nr, dm.subtype):
@@ -202,7 +196,11 @@ def create_control_variables(original_dm):
             dm.numbers[sdm] = len(sdm[sdm.order_changes > 0]) / len(sdm) * 100
     
     for s, sdm in ops.split(dm.category):
-        print(f'{s}: {np.round(sdm.numbers.mean, 2)} % of trial pairs in the dark->bright order (SD = {np.round(sdm.numbers.std, 2)}%, n = {len(sdm)})')
+        if s == 'Non-dynamic':
+            sdm = sdm.pupil_change != NAN
+        else:
+            sdm = sdm.slope_change != NAN
+        print(f'{s}: {len(sdm[sdm.order_changes > 0])/len(sdm) * 100} % of trial pairs in the dark->bright order (n = {len(sdm)})')
 
     return dm
 
@@ -271,6 +269,14 @@ def merge_dm_df(dm_to_merge, df):
     print('Mean accuracy %:', np.round(dm.correct_answer.mean, 2), np.round(dm.correct_answer.std, 2))
     print('Language:', len(dm.subject_nr[dm.response_lang=='English'].unique), len(dm.subject_nr[dm.response_lang=='Dutch'].unique))
 
+    # Print descriptives
+    for type_, sdm in ops.split(dm.subtype):
+        print('\n', type_)    
+        print(f'On average, participants reported that imagining the {type_} stories necessitated "... effort" (M = {np.round(sdm.response_effort.mean,3)}, SD = {np.round(sdm.response_effort.std,3)}, n = {len(sdm)}),')
+        print(f'induced "... emotions" (M = {np.round(sdm.emotional_intensity.mean,3)}, SD = {np.round(sdm.emotional_intensity.std,3)}, n = {len(sdm)})')
+        print(f'and were imagined as "..." (M = {np.round(sdm.response_vivid.mean,3)}, SD = {np.round(sdm.response_vivid.std,3)}, n = {len(sdm)}).')
+        print(f'The mean accuracy for this brightness condition was {np.round(sdm.correct_answer.mean,2)} (SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}).')
+
     # Descriptives
     print(df[['VVIQ', 'SUIS']].describe())
     print(df[['Q01AGE', 'Q02LANG', 'Q03LANG', 'Q05EYE', 'Q06EAR']].describe())
@@ -313,7 +319,7 @@ def check_blinks(dm_blinks, new=False):
     if new==True:
         dm_blinks.n_blinks=''
         for p, s, sdm in ops.split(dm_blinks.subject_nr, dm_blinks.stimID):
-            dm_blinks.n_blinks[sdm] = (reduce(sdm.blinkstlist_target, count_nonnan) / sdm.dur) * 60
+            dm_blinks.n_blinks[sdm] = (reduce(sdm.blinkstlist_target, count_nonnan) / (sdm.trace_length_target / 1000)) * 60
         
     # aggregate data by subject and condition
     pm = ops.group(dm_blinks, by=[dm_blinks.subject_nr, dm_blinks.scene])
@@ -421,27 +427,31 @@ def preprocess_dm(dm_to_process):
     # Trim tails
     dm_.pupil = srs.trim(dm_.pupil, value=NAN, end=True, start=True)
     
-    # Check trials with only nan values during baseline period
+    # Check number of nan values per trial
     dm_.nonnan_pupil = ''
     for p, t, sdm in ops.split(dm_.subject_nr, dm_.stimID):
-        dm_.nonnan_pupil[sdm] = count_nonnan(sdm.pupil[:,0:5])
-    print(f'Before linear interpolation on the first 200 ms:\n{len(dm_[dm_.nonnan_pupil == 0])} trials with all-nan slices during the first 5 ms.')
+        dm_.nonnan_pupil[sdm] = count_nonnan(sdm.ptrace_target[:, 0:int(sdm.duration.unique[0])]) / int(sdm.duration.unique[0]) * 100 # percentage of non-nan values
+    
+    plt.figure(figsize=(13,8));warnings.filterwarnings("ignore", category=UserWarning)  
+    sns.distplot(dm_.nonnan_pupil)
+    plt.xlabel('Percentage of valid samples per trial')
+    plt.tight_layout()
+    plt.show();warnings.filterwarnings("default", category=UserWarning)  
 
+    print(f'{len(dm_[dm_.nonnan_pupil < 50])} trials with more than 50% of NAN values ({len(dm_.subject_nr[dm_.nonnan_pupil < 50].unique)} participants).')
+    
+    dm_ = dm_.nonnan_pupil >= 50 # keep relevant trials
+    
     # Per participant
     #plot_traces(dm_, by='by-participant', bl=True)
     
     # Interpolate the first and last 200 milliseconds of each trace (to not have unreconstructed blinks
     # taken into account when doing the baseline correction and prevent edge effects)
     dm_.pupil[:, 0:20] = srs.interpolate(srs.concatenate(dm_.ptrace_fixation[:,80:100], dm_.pupil[:,0:20]))[:, 20:40]
+    #dm_.ptrace_fixation = srs.interpolate(dm_.ptrace_fixation[:, 0:100])
     dm_.pupil[:, 3380:3420] = srs.interpolate(dm_.pupil[:, 3380:3420])
     print('Pupil size traces linearly interpolated from 0 to 200 ms.')
-    
-    # Check trials with only nan values during baseline period again
-    dm_.nonnan_pupil = ''
-    for p, t, sdm in ops.split(dm_.subject_nr, dm_.stimID):
-        dm_.nonnan_pupil[sdm] = count_nonnan(sdm.pupil[:,0:5])
-    print(f'After linear interpolation on the first 200 ms:\n{len(dm_[dm_.nonnan_pupil == 0])} trials with all-nan slices during the first 5 ms.')
-    
+       
     # Per participant
     #plot_traces(dm_, by='by-participant', bl=True)
     
@@ -461,9 +471,7 @@ def preprocess_dm(dm_to_process):
     plt.tight_layout()
     plt.show();warnings.filterwarnings("default", category=UserWarning)  
     
-    unrealistic = list(dm_.subject_nr[dm_.z_pupil > 2.0 or dm_.z_pupil < -2 or dm_.z_pupil == NAN])
-    print(f'{len(set(unrealistic))} participants with outlier or NAN pupil sizes {unrealistic}.')
-    
+    print(dm_.subject_nr[dm_.z_pupil == NAN], dm_.subject_nr[dm_.z_pupil > 2.0], dm_.subject_nr[dm_.z_pupil < -2])
     dm_ = dm_.z_pupil != NAN 
     dm_ = dm_.z_pupil <= 2.0 
     dm_ = dm_.z_pupil >= -2.0 
@@ -471,8 +479,10 @@ def preprocess_dm(dm_to_process):
         
     # Baseline correction on the first 50 ms with the subtractive method
     bl_start, bl_end = 0, 5 # baseline duration (samples)
+    #dm_.baseline = dm_.ptrace_fixation[:, 95:100]
     for p, sdm in ops.split(dm_.subject_nr):
         dm_.pupil[sdm] = srs.baseline(sdm.pupil, sdm.pupil, bl_start, bl_end)
+        #dm_.pupil[sdm] = srs.baseline(sdm.pupil, sdm.baseline, bl_start, bl_end)
     print('Baseline-correction applied on the first 50 ms after story onset.')
     
     # Compute the mean pupil size and mean slopes during listening
@@ -525,6 +535,7 @@ def preprocess_dm(dm_to_process):
     print(f'How many participants have n number of trials: {Counter(Counter(dm_.subject_nr).values())}')
     
     print(f'N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
+    
     return dm_
 
 # Plot traces
@@ -982,14 +993,23 @@ def plot_correlations(dm, what='all'):
 
 def dist_checks(dm_to_check, leg):
     """Similar distributions between conditions?"""
-    sdm_light, sdm_dark, sdm_light_dark, sdm_dark_light = ops.split(dm_to_check.type, 'light', 'dark', 'light_dark', 'dark_light')
     # Kolmogorov-Smirnov test: Are the samples from the same distribution? (H0)
-    for dms in zip([sdm_light, sdm_light_dark], [sdm_dark, sdm_dark_light]):
-        print(dms[0].type.unique, 'vs.', dms[1].type.unique)
-        print(f'Vividness: {kstest(dms[0].response_vivid, dms[1].response_vivid)}')
-        print(f'Effort: {kstest(dms[0].response_effort, dms[1].response_effort)}')
-        print(f'Valence: {kstest(dms[0].response_val, dms[1].response_val)}')
-        print(f'Emotional intensity: {kstest(dms[0].emotional_intensity, dms[1].emotional_intensity)}')
+    for cat in ['non-dynamic', 'dynamic']:
+        if cat == 'non-dynamic':
+            dm_sub = dm_to_check.pupil_change != NAN
+            dm_sub = dm_sub.subtype != 'dynamic'
+        else:
+            dm_sub = dm_to_check.slope_change != NAN
+            dm_sub = dm_sub.subtype == 'dynamic'
+        sdm_light, sdm_dark  = ops.split(dm_sub.suptype, 'light', 'dark')    
+        for dms in zip([sdm_light], [sdm_dark]):
+            print(f"{dms[0].type.unique} (n = {len(dms[0])}) vs. {dms[1].type.unique} (n = {len(dms[1])})")
+            print(f'Blinks: {kstest(dms[0].n_blinks, dms[1].n_blinks)}')
+            print(f'Vividness: {kstest(dms[0].response_vivid, dms[1].response_vivid)}')
+            print(f'Effort: {kstest(dms[0].response_effort, dms[1].response_effort)}')
+            print(f'Valence: {kstest(dms[0].response_val, dms[1].response_val)}')
+            print(f'Emotional intensity: {kstest(dms[0].emotional_intensity, dms[1].emotional_intensity)}')
+            
             # Visualize
     plot_dist(sub='non-dynamic', h = leg.legend_handles, palette=[green[1], blue[1]], data=dm_to_check, title='Non-dynamic stories\n', leg_loc=[0.67, 0.94])
     plot_dist(sub='dynamic', h = leg.legend_handles, palette=[green[1], blue[1]], data=dm_to_check, title='Dynamic stories\n', leg_loc=[0.75, 0.94])
@@ -1212,3 +1232,114 @@ def supp_plots(dm_to_plot, what):
         plt.subplot(1,2,2);plot_bars(sdm, x='subtype', y='slope_change', hue='aphantasia', hue_order=None, pal=['red', 'black'], xlab='Aphantasia (VVIQ < 2)', ylab='Pupil-size slope differences (a.u.)\n (Bright to dark - Bright to dark)', alpha=0.5, fig=False)
         plt.tight_layout()
         plt.show()
+
+    if what == 'effort_vivid':
+        fig, axes = plt.subplots(1, 3, figsize=(32,10), sharey=True)
+        i=1
+        for subtype, sdm in ops.split(dm_to_plot.subtype[dm_to_plot.subtype!='dynamic']):
+            ax=plt.subplot(1,3,i)
+            sdm_df = convert.to_pandas(sdm)
+            sdm_df = sdm_df[sdm_df.mean_pupil != '']
+            sdm_df = sdm_df[sdm_df.pupil_change != '']
+            titles = ['Birthday Party', 'Lord of the Rings', 'Neutral']
+            #ax.set_ylim([-1000, 1000]);ax.set_yticks(range(-1000,1500,500), range(-1000,1500,500))
+            plot_bars(sdm_df, x='response_vivid', hue='type', y='response_effort', hue_order=None, pal=palette[0:2], xlab='', title=None, fig=False, ylab='', legend=True)
+            if i>1:
+                ax.set_yticks([], [])
+            plt.ylabel('');plt.xlabel('')
+            plt.title(f'{titles[i-1]}', fontsize=45)#;plt.xticks(range(0,5), range(1,6))
+            i+=1
+        fig.supxlabel('Trial-by-trial vividness ratings per subtype and per participant', ha='center', fontsize=50)
+        fig.supylabel('Trial-by-trial effort ratings per\nsubtype and per participant', ha='center', fontsize=50)
+        plt.tight_layout()
+        plt.show()
+        
+    if what == 'emo_vivid':
+        fig, axes = plt.subplots(1, 3, figsize=(32,10), sharey=True)
+        i=1
+        for subtype, sdm in ops.split(dm_to_plot.subtype[dm_to_plot.subtype!='dynamic']):
+            ax=plt.subplot(1,3,i)
+            sdm_df = convert.to_pandas(sdm)
+            sdm_df = sdm_df[sdm_df.mean_pupil != '']
+            sdm_df = sdm_df[sdm_df.pupil_change != '']
+            titles = ['Birthday Party', 'Lord of the Rings', 'Neutral']
+            #ax.set_ylim([-1000, 1000]);ax.set_yticks(range(-1000,1500,500), range(-1000,1500,500))
+            plot_bars(sdm_df, x='response_vivid', hue='type', y='response_val', hue_order=None, pal=palette[0:2], xlab='', title=None, fig=False, ylab='', legend=True)
+            if i>1:
+                ax.set_yticks([], [])
+            plt.ylabel('');plt.xlabel('')
+            plt.title(f'{titles[i-1]}', fontsize=45)#;plt.xticks(range(0,5), range(1,6))
+            i+=1
+        fig.supxlabel('Trial-by-trial vividness ratings per subtype and per participant', ha='center', fontsize=50)
+        fig.supylabel('Trial-by-trial valency ratings per\nsubtype and per participant', ha='center', fontsize=50)
+        plt.tight_layout()
+        plt.show()
+        
+    if what == 'changes':
+        fig, axes = plt.subplots(1, 3, figsize=(32,10), sharey=True)
+        i=1
+        for subtype, sdm in ops.split(dm_to_plot.subtype[dm_to_plot.subtype!='dynamic']):
+            ax=plt.subplot(1,3,i)
+            sdm_df = convert.to_pandas(sdm)
+            sdm_df = sdm_df[sdm_df.mean_pupil != '']
+            sdm_df = sdm_df[sdm_df.pupil_change != '']
+            titles = ['Birthday Party', 'Lord of the Rings', 'Neutral']
+            #ax.set_ylim([-1000, 1000]);ax.set_yticks(range(-1000,1500,500), range(-1000,1500,500))
+            plot_bars(sdm_df, x='mean_vivid', hue=None, y='changes', hue_order=None, pal='flare', xlab='', title=None, fig=False, ylab='', legend=True)
+            if i>1:
+                ax.set_yticks([], [])
+            plt.ylabel('');plt.xlabel('')
+            plt.title(f'{titles[i-1]}', fontsize=45)#;plt.xticks(range(0,5), range(1,6))
+            i+=1
+        fig.supxlabel('Mean vividness ratings (dark and bright) per subtype and per participant', ha='center', fontsize=50)
+        fig.supylabel('Trial-by-trial valency ratings per\nsubtype and per participant', ha='center', fontsize=50)
+        plt.tight_layout()
+        plt.show()
+    
+    if what == 'time':
+        fig, axes = plt.subplots(1, 1, figsize=(12,8), sharey=True)
+        plot_bars(dm_df, x='trialid', y='mean_pupil', hue=None, hue_order=None, pal='flare', xlab='Trial presentation rank', ylab='Mean pupil size (a.u.)', alpha=0.5, fig=False)
+        plt.tight_layout()
+        plt.show()
+
+def create_img(dm):
+    """Test."""
+    subdm = dm.subtype != ''
+    # Plot individual traces 
+    for s, t, sdm in ops.split(subdm.subject_nr, subdm.subtype):
+        fig = plt.figure(figsize=(8,5))
+        vivid = int(np.round(sdm.mean_vivid.unique[0]))
+        sdm_light = sdm.suptype == 'light'
+        sdm_dark = sdm.suptype == 'dark'
+        if (len(sdm_light) > 0 and len(sdm_dark) > 0):
+            plt.plot(sdm_light.pupil.plottable, color=green[1], linewidth=5)
+            plt.plot(sdm_dark.pupil.plottable, color=blue[1], linewidth=5)
+        plt.xticks([]);plt.yticks([]);plt.tight_layout()
+        fig.savefig(f'img/{vivid}/S{s}_{t}_{vivid}.png')
+        plt.close()
+
+def dist_checks_wilcox(dm):
+    """Non-parametric paired t-tests with Wilcoxon signed-rank test."""
+    for cat, sdm_ctrl in ops.split(dm.category):
+        if cat == 'Non-dynamic':
+            dm_sub = sdm_ctrl.pupil_change != NAN
+            dm_sub = ops.group(dm_sub, by=[dm_sub.subject_nr, dm_sub.suptype]) 
+
+            # Make sure to have only unique mean values for each variable per participant 
+            for col in dm_sub.column_names:
+                if type(dm_sub[col]) != datamatrix._datamatrix._mixedcolumn.MixedColumn:
+                    dm_sub[col] = reduce(dm_sub[col]) # Compute the mean per subtype 
+        else:
+            dm_sub = sdm_ctrl.slope_change != NAN
+        print(f"\n{cat} (n = {len(dm_sub[dm_sub.suptype == 'light'])})")
+        print(f"Blinks: {wilcoxon(dm_sub.n_blinks[dm_sub.suptype == 'light'], dm_sub.n_blinks[dm_sub.suptype == 'dark'])}")
+        print(dm_sub.n_blinks[dm_sub.suptype == 'light'].mean, dm_sub.n_blinks[dm_sub.suptype == 'dark'].mean)
+        print(dm_sub.n_blinks[dm_sub.suptype == 'light'].std, dm_sub.n_blinks[dm_sub.suptype == 'dark'].std)
+
+        print(f"Effort: {wilcoxon(dm_sub.response_effort[dm_sub.suptype == 'light'], dm_sub.response_effort[dm_sub.suptype == 'dark'])}")
+        print(dm_sub.response_effort[dm_sub.suptype == 'light'].mean, dm_sub.response_effort[dm_sub.suptype == 'dark'].mean)
+        print(dm_sub.response_effort[dm_sub.suptype == 'light'].std, dm_sub.response_effort[dm_sub.suptype == 'dark'].std)
+
+        print(f"Arousal: {wilcoxon(dm_sub.emotional_intensity[dm_sub.suptype == 'light'], dm_sub.emotional_intensity[dm_sub.suptype == 'dark'])}")
+        print(dm_sub.emotional_intensity[dm_sub.suptype == 'light'].mean, dm_sub.emotional_intensity[dm_sub.suptype == 'dark'].mean)
+        print(dm_sub.emotional_intensity[dm_sub.suptype == 'light'].std, dm_sub.emotional_intensity[dm_sub.suptype == 'dark'].std)

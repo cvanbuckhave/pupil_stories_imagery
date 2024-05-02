@@ -19,10 +19,12 @@ import pandas as pd
 from datamatrix import convert
 from custom_func import (get_raw, check_blinks, preprocess_dm, supp_plots,
                          lm_pupil, compare_models, lm_slope, plot_traces,
-                         test_correlation, check_assumptions,
+                         test_correlation, check_assumptions, create_img,
                          merge_dm_df, plot_dist_scores, plot_correlations,
-                         create_control_variables, dist_checks, main_plots)
+                         create_control_variables, dist_checks, main_plots,
+                         dist_checks_wilcox)
 from collections import Counter
+from scipy.stats import wilcoxon
 
 # Define useful variables
 cwd=os.getcwd() # auto
@@ -185,7 +187,7 @@ dm_ctrl = create_control_variables(dm_)
 
 # 1. Control for the effect of effort and arousal (emotional intensity) 
     # Pupil mean differences
-for ctrl_var in ['effort_changes', 'emo_changes', 'order_changes']: # can also try with 'nonnan_pupil', 'n_blinks'... 
+for ctrl_var in ['effort_changes', 'emo_changes', 'order_changes', 'n_blinks']: # can also try with 'nonnan_pupil', 'n_blinks'... 
     print(ctrl_var)
     mS1 = lm_pupil(dm_ctrl, formula = f'pupil_change ~ mean_vivid + {ctrl_var}', re_formula='1 + mean_vivid', reml=True, pupil_change=True)
     check_assumptions(mS1, 'Controls')
@@ -194,18 +196,14 @@ for ctrl_var in ['effort_changes', 'emo_changes', 'order_changes']: # can also t
     mS1.tvalues, mS1.pvalues = np.round(mS1.tvalues, 3), np.round(mS1.pvalues, 3)
     print(f'Main effect: z = {mS1.tvalues[1]}, p = {mS1.pvalues[1]}, n = {len(mS1.random_effects)}')
 
-# mS2 = lm_pupil(dm_ctrl, formula = 'mean_pupil ~ type * response_vivid + response_effort + emotional_intensity', re_formula='1 + type', reml=True)
-# check_assumptions(mS2, 'Controls')
-
-# print(mS2.summary())
-# mS2.tvalues, mS2.pvalues = np.round(mS2.tvalues, 3), np.round(mS2.pvalues, 3)
-# print(f'Main effect: z = {mS1.tvalues[1]}, p = {mS1.pvalues[1]}, n = {len(mS1.random_effects)}')
-
-# 2. Check similar distributions between...
+# 2. Check similar distributions between conditions with KS test
 dist_checks(dm_ctrl, legend)
 
+# 3. Another way to check no differences, with paired Wilcoxon test
+dist_checks_wilcox(dm_ctrl)
+
 # =============================================================================
-# Supplementary visualisations - /!\ plot land /!\
+# Supplementary visualisations - /!\ plot land /!\ - for supp materials (figures)
 # =============================================================================
 # Plot distributions of subjective measures
 plot_dist_scores(dm_ctrl)
@@ -216,14 +214,17 @@ supp_plots(dm_ctrl, what='emotional_intensity')
 supp_plots(dm_ctrl, what='effort') 
 supp_plots(dm_ctrl, what='aphantasia') 
 
-# =============================================================================
-# Visualisation: Individual effects (point plots)
-# =============================================================================
+supp_plots(dm_ctrl, what='effort_vivid') 
+supp_plots(dm_ctrl, what='emo_vivid') 
+supp_plots(dm_ctrl, what='changes') 
+supp_plots(dm_ctrl, what='time') 
+
+# Individual effects (point plots)
 # 1. Mean pupil size per condition and per participant (all conditions)
 plt.figure(figsize=(30,10))
 ax = plt.subplot(1,1,1)
 dm = dm_.subtype != 'dynamic'
-#dm = dm.pupil_change != NAN
+dm = dm.pupil_change != NAN
 dm.mean_pupil_change = ''
 for s, sdm in ops.split(dm.subject_nr):
     dm.mean_pupil_change[sdm] = sdm.pupil_change.mean
@@ -242,11 +243,11 @@ plt.show()
 
 # 2. Mean pupil size changes per participant
 plt.figure(figsize=(20,10))
-#plt.title('All non-dynamic stories')
+plt.title('All non-dynamic stories')
 sns.pointplot(data=dm_sub, x='subject_nr', y='pupil_change', hue='category', order=list_order1, markersize=18, linewidth=5, estimator=np.mean, palette=['black'], errorbar=('se',1), legend=False)
 plt.axhline(0, linestyle='solid', color='black')
 plt.xlabel('Participants');plt.ylabel('Pupil-size mean differences\n (Dark - Bright) (a.u.)')
-#plt.legend(ncol=5, title='Aphantasia (VVIQ < 2)', frameon=False, loc='upper center')
+plt.legend(ncol=5, title='Aphantasia (VVIQ < 2)', frameon=False, loc='upper center')
 plt.xticks([])
 plt.ylim([-1500, 1500])
 plt.tight_layout()
@@ -340,7 +341,7 @@ N = len(dm.subject_nr.unique)
 n = len(set(dm.subject_nr[dm.slope_change > 0]))
 print(f'{round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
 
-# 3. Mean pupil slope changes per participant per mean vivid
+# 6. Mean pupil slope changes per participant per mean vivid
 fig = plt.figure(figsize=(40,20));i=1
 dm_sub = dm_.subtype == 'dynamic';plt.suptitle('Dynamic', fontsize=60)
 for thresh in np.arange(1, 5, 0.5):
@@ -370,3 +371,6 @@ fig.supylabel('Pupil Slope Changes (a.u.)\n (Bright to dark - Dark to bright)', 
 fig.supxlabel('Participants', fontsize=50)
 plt.tight_layout()
 plt.show()
+
+############################################################################
+
