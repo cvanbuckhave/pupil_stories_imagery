@@ -340,7 +340,11 @@ def preprocess_dm(dm_to_process):
     dm_.baseline = dm_.ptrace_fixation[:, 95:100] # the 50 ms baseline period
     
     for sup, t, sdm in ops.split(dm_.suptype, dm_.trialid):
-        dm_.pupil[sdm] = srs.baseline(sdm.ptrace_target, sdm.baseline, 0, 5, method='subtractive') # baseline correct pupil size
+        if sup == 'rabbit':
+            dm_.pupil[sdm] = srs.baseline(sdm.ptrace_target, sdm.baseline, 0, 5, method='subtractive') # baseline correct pupil size
+        else:
+            dm_.pupil[sdm] = srs.baseline(sdm.ptrace_target, sdm.baseline, 0, 5, method='subtractive') # baseline correct pupil size
+
         #dm_.ptrace_fixation[sdm] = srs.baseline(sdm.ptrace_fixation, sdm.ptrace_fixation, 0, 5, method='subtractive') # baseline correct pupil size
     print('Baseline-correction applied on the last 50 ms before story onset.')
     
@@ -369,6 +373,7 @@ def preprocess_dm(dm_to_process):
 
     # Compute the mean pupil size and mean slopes during listening
     dm_.mean_pupil, dm_.mean_fixation = NAN, NAN
+    dm_.raw_mean = NAN
     for p, trial, sdm in ops.split(dm_.subject_nr, dm_.trialid):
         suptype = sdm.suptype.unique[0]
         if suptype == 'rabbit':
@@ -379,11 +384,14 @@ def preprocess_dm(dm_to_process):
         # to prevent taking into account edge effects 
         duration = int(start + sdm.duration.unique[0] - minus)
         pupil = sdm.pupil[:, start:duration] # don't take the first 50 ms neither (baseline)
-        
+        pupil_raw = sdm.ptrace_target[:, start:duration] # don't take the first 50 ms neither (baseline)
+
         if count_nonnan(pupil) > 0:            
             # Pupil-size mean
             dm_.mean_pupil[sdm] = reduce(pupil, np.nanmean)
             dm_.mean_fixation[sdm] = reduce(sdm.baseline, np.nanmean)
+            dm_.raw_mean[sdm] = reduce(pupil_raw, np.nanmean)
+
     print('Mean pupil size and slopes were computed over the whole listening phase for each trial.')
         
     # Create new variables 
@@ -408,78 +416,6 @@ def preprocess_dm(dm_to_process):
     dm_ = dm_.pupil_change != NAN # keep only valid pairs of mean pupil size
     print(f'After preprocessing: N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
     
-    # Quick visualisation
-    fig, axes = plt.subplots(3, 1, figsize=(28,30), sharey=False)
-    plt.subplot(3,1,1);plt.title('Rabbit trials')
-    sdm=dm_.suptype=='rabbit'
-    plot.trace(sdm.pupil[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="dark"])})')
-    plot.trace(sdm.pupil[sdm.type=='light'], color=green[1], label=f'Bright (N = {len(sdm.pupil[sdm.type=="light"])})')
-    plt.legend(loc='lower center', frameon=True,ncol=2)#;plt.ylim([-800,800])
-    plt.xticks(range(0,13000,500), range(0,129,5))
-    plt.xlim([0, 3000])
-    plt.xlabel('Time since story onset (s)', fontsize=40)
-    plt.subplot(3,1,2)
-    plot.trace(sdm.pupil[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="dark"])})')
-    plot.trace(sdm.pupil[sdm.type=='light'], color=green[1], label=f'Bright (N = {len(sdm.pupil[sdm.type=="light"])})')
-    plt.legend(loc='lower center', frameon=True,ncol=2)#;plt.ylim([-800,800])
-    plt.xticks(range(0,13000,500), range(0,129,5))
-    plt.xlim([3000, 6000])
-    plt.xlabel('Time since story onset (s)', fontsize=40)
-    plt.subplot(3,1,3)
-    plot.trace(sdm.pupil[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="dark"])})')
-    plot.trace(sdm.pupil[sdm.type=='light'], color=green[1], label=f'Bright (N = {len(sdm.pupil[sdm.type=="light"])})')
-    plt.legend(loc='lower center', frameon=True,ncol=2)#;plt.ylim([-800,800])
-    plt.xticks(range(0,13000,500), range(0,129,5))
-    plt.xlim([6000, 11700])
-    plt.xlabel('Time since story onset (s)', fontsize=40)
-    fig.supylabel('Baseline-corrected pupil size (a.u.)', fontsize=45)
-    plt.tight_layout()
-    plt.show()
-    
-    fig, axes = plt.subplots(1, 1, figsize=(28,10))
-    plt.subplot(1,1,1)#;plt.title('Rabbit trials')
-    sdm=dm_.suptype=='rabbit'
-    tst.plot(sdm, dv='pupil', hue_factor='type', hues=[blue[1], green[1]], 
-             legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2, 'labels': [f'Dark (N={len(sdm[sdm.type=="dark"])})', f'Bright (N={len(sdm[sdm.type=="light"])})']},
-             annotation_legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2}, 
-             x0=0, sampling_freq=1)
-    plt.xticks(np.arange(0, 11700+500, 500), np.arange(0, int(11700/100)+5, 5))
-    plt.xlim([0, 11700])
-    plt.xlabel('Time since story onset (s)', fontsize=40)
-    plt.ylabel('Baseline-corrected\npupil size (a.u.)', fontsize=45)
-    plt.tight_layout()
-    plt.show()
-    
-    fig, axes = plt.subplots(1, 1, figsize=(28,10))
-    plt.subplot(1,1,1)#;plt.title('Self trials')
-    sdm=dm_.suptype=='self'
-    plot.trace(sdm.pupil[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="dark"])})')
-    plot.trace(sdm.pupil[sdm.type=='light'], color=green[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="light"])})')
-    plt.legend(loc='lower center', frameon=True,ncol=2)
-    plt.xticks(range(0,3100,100), range(0,31,1))#;plt.ylim([-800,800])
-    plt.xlim([0, 3000])
-    plt.xlabel('Time since start trial (s)', fontsize=40)
-    fig.supylabel('Baseline-corrected\npupil size (a.u.)', fontsize=45)
-    plt.tight_layout()
-    plt.show()
-    
-    # Convert to pandas dataframe because it causes problems with seaborn to use datamatrix
-    dm_df = convert.to_pandas(dm_)
-
-        # 1. Mean pupil sizes and mean slopes per condition (all)
-    dm_sub1 = dm_df[dm_df.mean_pupil != '']
-    dm_sub1 = dm_sub1[dm_sub1.pupil_change != '']
-
-    fig, axes = plt.subplots(1, 1, figsize=(18,8))
-    ax2=plt.subplot(1,1,1)
-    plot_bars(dm_sub1, x='suptype', y='mean_pupil', hue='type', hue_order=['light', 'dark'], order=None, pal=[green[1], blue[1]], fig=False, alpha=0.7)
-    handles, labels = ax2.get_legend_handles_labels()
-    plt.xticks(range(0, 2), ['Great Rabbit', 'Self-selected'])
-    plt.xlabel('Story content');plt.ylabel('Mean pupil-size changes\nrelative to baseline (a.u.)', color='black')
-    plt.legend(handles=handles, labels=['Bright', 'Dark'], frameon=False, title='Version')
-    plt.tight_layout()
-    plt.show()
-        
     # Spot participants with only invalid data
     all_nan = []
     for s, sdm in ops.split(dm_.subject_nr):
@@ -492,6 +428,67 @@ def preprocess_dm(dm_to_process):
 
     return dm_
 
+def quick_visualisation(dm_to_visualise, raw=False, after_preprocess=True):
+    """Pupil traces and mean pupil size per cond and per task."""
+    
+    # Quick visualisation
+    fig, axes = plt.subplots(1, 1, figsize=(28,10))
+    plt.subplot(1,1,1);plt.title('Rabbit trials')
+    sdm=dm_to_visualise.suptype=='rabbit'
+    if raw == False:
+        tst.plot(sdm, dv='pupil', hue_factor='type', hues=[blue[1], green[1]], 
+                 legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2, 'labels': [f'Dark (N={len(sdm[sdm.type=="dark"])})', f'Bright (N={len(sdm[sdm.type=="light"])})']},
+                 annotation_legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2}, 
+                 x0=0, sampling_freq=1)
+    else:
+        tst.plot(sdm, dv='ptrace_target', hue_factor='type', hues=[blue[1], green[1]], 
+                 legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2, 'labels': [f'Dark (N={len(sdm[sdm.type=="dark"])})', f'Bright (N={len(sdm[sdm.type=="light"])})']},
+                 annotation_legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2}, 
+                 x0=0, sampling_freq=1)
+    plt.xticks(np.arange(0, 11700+500, 500), np.arange(0, int(11700/100)+5, 5))
+    plt.xlim([0, 11700])
+    plt.xlabel('Time since story onset (s)', fontsize=40)
+    plt.ylabel('Baseline-corrected\npupil size (a.u.)', fontsize=45)
+    plt.tight_layout()
+    plt.show()
+    
+    fig, axes = plt.subplots(1, 1, figsize=(28,10))
+    plt.subplot(1,1,1);plt.title('Self trials')
+    sdm=dm_to_visualise.suptype=='self'
+    if raw==False:
+        plot.trace(sdm.pupil[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="dark"])})')
+        plot.trace(sdm.pupil[sdm.type=='light'], color=green[1], label=f'Dark (N = {len(sdm.pupil[sdm.type=="light"])})')
+    else:
+        plot.trace(sdm.ptrace_target[sdm.type=='dark'], color=blue[1], label=f'Dark (N = {len(sdm.ptrace_target[sdm.type=="dark"])})')
+        plot.trace(sdm.ptrace_target[sdm.type=='light'], color=green[1], label=f'Dark (N = {len(sdm.ptrace_target[sdm.type=="light"])})')
+    plt.legend(loc='lower center', frameon=True,ncol=2)
+    plt.xticks(range(0,3100,100), range(0,31,1))#;plt.ylim([-800,800])
+    plt.xlim([0, 3000])
+    plt.xlabel('Time since start trial (s)', fontsize=40)
+    fig.supylabel('Baseline-corrected\npupil size (a.u.)', fontsize=45)
+    plt.tight_layout()
+    plt.show()
+    
+    if after_preprocess==True:
+        # Convert to pandas dataframe because it causes problems with seaborn to use datamatrix
+        dm_df = convert.to_pandas(dm_to_visualise)
+    
+        # Mean pupil sizes and mean slopes per condition (all)
+        dm_sub1 = dm_df[dm_df.mean_pupil != '']
+        dm_sub1 = dm_sub1[dm_sub1.pupil_change != '']
+        fig, axes = plt.subplots(1, 1, figsize=(18,8))
+        ax2=plt.subplot(1,1,1)
+        if raw==False:
+            plot_bars(dm_sub1, x='suptype', y='mean_pupil', hue='type', hue_order=['light', 'dark'], order=None, pal=[green[1], blue[1]], fig=False, alpha=0.7)
+        else:
+            plot_bars(dm_sub1, x='suptype', y='raw_mean', hue='type', hue_order=['light', 'dark'], order=None, pal=[green[1], blue[1]], fig=False, alpha=0.7)
+        handles, labels = ax2.get_legend_handles_labels()
+        plt.xticks(range(0, 2), ['Great Rabbit', 'Self-selected'])
+        plt.xlabel('Story content');plt.ylabel('Mean pupil-size changes\nrelative to baseline (a.u.)', color='black')
+        plt.legend(handles=handles, labels=['Bright', 'Dark'], frameon=False, title='Version')
+        plt.tight_layout()
+        plt.show()
+        
 def create_control_variables(original_dm):
     """All the control variables."""
     # Create copy of dm to not overwrite it
@@ -712,7 +709,10 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
     else:
         pval = np.round(pval, 3)
         
-    res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}, n = {N}'
+    if fig == False:
+        res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}, n = {N}'
+    else:
+        res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}'
     print(res)
     
     # Plot the correlations (linear regression model fit)
