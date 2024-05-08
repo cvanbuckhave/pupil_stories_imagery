@@ -108,30 +108,19 @@ def get_raw(path, dataframe):
     # Assign new variable
         # Emotional intensity (absolute value of valency)
     dm.emotional_intensity = np.abs(dm.response_val)
-    
-    # Correct answer
+        # Correct answer
     dm.correct_answer[dm.correct_answer=='yes'] = 1
     dm.correct_answer[dm.correct_answer=='no'] = 0
     dm.correct_answer = dm.correct_answer * 100 # as percentage
-    
-    # Create suptype
+        # Create suptype
     dm.suptype = ''
     dm.suptype[dm.subtype == 'self'] = 'self'
-    dm.suptype[dm.subtype != 'self'] = 'rabbit'
-    
-    # Which version is it? (versio 1: bright->dark; version 2: dark->bright)
+    dm.suptype[dm.subtype != 'self'] = 'rabbit'   
+        # Which version is it? (versio 1: bright->dark; version 2: dark->bright)
     dm.version = ''
     for p, s, sdm in ops.split(dm.subject_nr, dm.scene):
         dm.version[sdm] = int(str(sdm.scene.unique[0])[-1])
-    
-    # Duration of instruction reading for imagination of self-chosen scene
-    dm.len_instructions = NAN
-    dm.ptrace_instructions = srs.trim(dm.ptrace_instructions)
-    for s, t, sdm in ops.split(dm.subject_nr, dm.trialid):
-        if t > 1: # if not rabbit trials (2 first trials)
-            dm.len_instructions[sdm] = srs.trim(sdm.ptrace_instructions, end=True).depth
-
-    # Keep track of trialid / presentation order
+        # Keep track of trialid / presentation order
     dm.order = ''
     for p, s, sdm in ops.split(dm.subject_nr, dm.suptype):
         if (sdm.trialid[sdm.type == 'dark'][0] < sdm.trialid[sdm.type == 'light'][0]) == True:
@@ -141,7 +130,13 @@ def get_raw(path, dataframe):
             dm.order[sdm.type == 'dark'] = "second"
             dm.order[sdm.type == 'light'] = "first"
         
-    return dm
+    return dm[dm.ptrace_target, dm.ptrace_fixation, dm.subject_nr,
+              dm.response_vivid, dm.response_effort, dm.response_val, dm.suptype,
+              dm.correct_answer, dm.emotional_intensity, dm.suptype, dm.dur,
+              dm.type, dm.subtype, dm.scene, dm.trialid, dm.duration, dm.stimID, 
+              dm.blinkstlist_fixation, dm.blinkstlist_target,
+              dm.fixylist_target, dm.fixxlist_target, dm.trace_length_target,
+              dm.order, dm.version, dm.trace_length_fixation]
 
 def merge_dm_df(dm_to_merge, df):
     """Compute main variables and add them to the dm."""
@@ -159,7 +154,7 @@ def merge_dm_df(dm_to_merge, df):
     print(f'Datamatrix and dataframe match in terms of participants: {list(np.sort(df.Q00ID)) == list(np.sort(new))}')
 
     # Compute the mean VVIQ score for each participant
-    VVIQ_cols = [i for i in df.columns if i.startswith('VVIQQ')]
+    VVIQ_cols = [i for i in df.columns if i.startswith('VVIQQ0')]
     df['VVIQ'] = df[VVIQ_cols].mean(axis=1)
     print(f"Cronbach's alpha for VVIQ: {pg.cronbach_alpha(data=df[VVIQ_cols])}")
     
@@ -207,14 +202,13 @@ def merge_dm_df(dm_to_merge, df):
         print(f'The mean accuracy for this brightness condition was {np.round(sdm.correct_answer.mean,2)} (SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}).')
 
     print('Mean accuracy %:', np.round(dm.correct_answer.mean, 2), np.round(dm.correct_answer.std, 2))
-    print('Language:', len(dm.subject_nr[dm.response_lang=='English'].unique), len(dm.subject_nr[dm.response_lang=='Dutch'].unique))
 
     # Print descriptives (questionnaire)
     print(df[['VVIQ', 'SUIS']].describe())
     print(df[['Q01AGE', 'Q02LANG', 'Q03LANG', 'Q05EYE', 'Q06EAR']].describe())
     print(df[['Q02LANG']].describe())
     print(df.groupby('Q04SEX').Q01AGE.describe())
-    
+
     return dm
 
 def count_nonnan(a):
@@ -223,11 +217,13 @@ def count_nonnan(a):
 def check_blinks(dm_blinks, new=False):
     """Check number of blinks per condition and per participant."""
     if new==True:
-        dm_blinks.n_blinks=''
-        dm_blinks.n_blinks_fixation=''
+        dm_blinks.n_blinks=NAN
         for p, s, sdm in ops.split(dm_blinks.subject_nr, dm_blinks.stimID):
-            dm_blinks.n_blinks[sdm] = (reduce(sdm.blinkstlist_target, count_nonnan) / (sdm.trace_length_target / 1000)) * 60
-            dm_blinks.n_blinks_fixation[sdm] = (reduce(sdm.blinkstlist_fixation, count_nonnan) / (sdm.trace_length_fixation / 1000)) * 60
+            dm_blinks.n_blinks[sdm] = np.round((reduce(sdm.blinkstlist_target, count_nonnan) / (sdm.trace_length_target / 1000)) * 60)
+
+        dm_blinks.mean_blinks=NAN
+        for p, sdm in ops.split(dm_blinks.subject_nr):
+            dm_blinks.mean_blinks[sdm] = sdm.n_blinks.mean
 
     # aggregate data by subject and condition
     pm = ops.group(dm_blinks, by=[dm_blinks.subject_nr, dm_blinks.scene])
@@ -287,20 +283,29 @@ def preprocess_dm(dm_to_process):
     print(f'For participants who had at least one error, how many did they make: {errors_list}')
     print(f'How many participants had n number of errors: {Counter(errors_list.values())}')
     
-    # Exclude participants with an abusive number of blinks (+ 2 SD)
+    # Check blink rate
     plt.figure(figsize=(13,8));warnings.filterwarnings("ignore", category=UserWarning) 
-    dm_.z_blinks = ops.z(dm_.n_blinks) # z-transform
-    sns.distplot(dm_.z_blinks)
-    plt.axvline(-2);plt.axvline(2)
+    
+    dm_.z_blinks = ops.z(dm_.n_blinks) # z-transform 
+    dm_.z_blinks_ = ops.z(dm_.mean_blinks) # z-transform
+
+    sns.distplot(dm_.z_blinks);plt.axvline(2)
     plt.xlabel('Blink rate per minute (z-scored)')
     plt.tight_layout()
     plt.show();warnings.filterwarnings("default", category=UserWarning)  
 
-    blinky = set(dm_.subject_nr[dm_.z_blinks >= 2.0])
+        # If we don't want to exclude them and add an 'is_outlier' variable in the model
+    dm_.is_outlier_trial = 'no'
+    dm_.is_outlier_trial[dm_.z_blinks > 2.0] = 'yes'
+    
+    dm_.is_outlier = 'no'
+    dm_.is_outlier[dm_.z_blinks_ > 2.0] = 'yes'
+    
+    blinky = list(dm_.subject_nr[dm_.z_blinks >= 2.0])
     blinks = set(dm_.n_blinks[dm_.z_blinks >= 2.0])
-    print(f'{len(blinky)} participants with a lot of blinks ({blinks}; M = {dm_.n_blinks.mean}, STD = {dm_.n_blinks.std})')
+    print(f'N = {len(blinky)} ({len(set(blinky))} participants) with a lot of blinks ({blinks}; M = {dm_.n_blinks.mean}, STD = {dm_.n_blinks.std})')
     print(blinky)
-        
+            
     # Check percentage of non-nan values for each trial
     dm_.nonnan_pupil = ''
     for p, t, sdm in ops.split(dm_.subject_nr, dm_.stimID):
@@ -330,35 +335,13 @@ def preprocess_dm(dm_to_process):
     dm_.ptrace_target = srs.smooth(dm_.ptrace_target, 51) 
     print('Pupil size traces smoothed with a Hanning window of 51 ms.')
     
-    # /!\ too few trials to compute z-scores on non-baseline corrected pupil traces
-    # Exclude trials with unrealistic mean pupil-size (outliers) 
-    # print(f'Before trial exclusion (pupil size): {len(dm_)} trials.')
-    # plt.figure(figsize=(13,8));warnings.filterwarnings("ignore", category=UserWarning)  
-    # dm_.z_pupil = NAN
-    # for s, sdm in ops.split(dm_.subject_nr):
-    #     dm_.z_pupil[sdm] = ops.z(reduce(sdm.ptrace_target))
-    # sns.distplot(dm_.z_pupil)
-    # plt.axvline(-2);plt.axvline(2)
-    # plt.xlabel('Mean pupil size (z-scored)')
-    # plt.tight_layout()
-    # plt.show();warnings.filterwarnings("default", category=UserWarning)  
-    
-    # unrealistic1 = list(np.array(dm_.subject_nr[dm_.z_pupil > 2.0]))
-    # unrealistic2 = list(np.array(dm_.subject_nr[dm_.z_pupil < -2.0]))
-    # nan_ = list(np.array(dm_.subject_nr[dm_.z_pupil == NAN]))
-    # print(unrealistic1, unrealistic2, nan_)
-    # print(f'{len(unrealistic1)+len(unrealistic2) + len(nan_)} trials with outlier or NAN pupil sizes.')
-    
-    # dm_ = dm_.z_pupil != NAN 
-    # dm_ = dm_.z_pupil <= 2.0 
-    # dm_ = dm_.z_pupil >= -2.0 
-    # print(f'After trial exclusion (pupil size): {len(dm_)} trials.')
-
     # Baseline correction on the 50 ms before story onset with the subtractive method
     dm_.baseline, dm_.pupil = ops.SeriesColumn(depth=100), ops.SeriesColumn(depth=dm_.ptrace_target.depth)
     dm_.baseline = dm_.ptrace_fixation[:, 95:100] # the 50 ms baseline period
-    dm_.pupil = srs.baseline(dm_.ptrace_target, dm_.baseline, 0, 5, method='subtractive') # baseline correct pupil size
-    dm_.ptrace_fixation = srs.baseline(dm_.ptrace_fixation, dm_.ptrace_fixation, 95, 100, method='subtractive') # baseline correct pupil size
+    
+    for sup, t, sdm in ops.split(dm_.suptype, dm_.trialid):
+        dm_.pupil[sdm] = srs.baseline(sdm.ptrace_target, sdm.baseline, 0, 5, method='subtractive') # baseline correct pupil size
+        #dm_.ptrace_fixation[sdm] = srs.baseline(sdm.ptrace_fixation, sdm.ptrace_fixation, 0, 5, method='subtractive') # baseline correct pupil size
     print('Baseline-correction applied on the last 50 ms before story onset.')
     
     # Exclude trials with unrealistic baseline-corrected mean pupil size (outliers) 
@@ -379,11 +362,6 @@ def preprocess_dm(dm_to_process):
     print(unrealistic1, unrealistic2, nan_)
     print(f'{len(unrealistic1)+len(unrealistic2) + len(nan_)} trials with outlier or NAN pupil sizes.')
     
-    # If we don't want to exclude them, but add an 'is_outlier' variable in the model
-    dm_.is_outlier = 'no'
-    dm_.is_outlier[dm_.z_pupil > 2.0] = 'yes'
-    dm_.is_outlier[dm_.z_pupil < -2.0] = 'yes'
-    # comment the next 3 lines:
     dm_ = dm_.z_pupil != NAN 
     dm_ = dm_.z_pupil <= 2.0 
     dm_ = dm_.z_pupil >= -2.0 
@@ -405,7 +383,7 @@ def preprocess_dm(dm_to_process):
         if count_nonnan(pupil) > 0:            
             # Pupil-size mean
             dm_.mean_pupil[sdm] = reduce(pupil, np.nanmean)
-            dm_.mean_fixation[sdm] = reduce(sdm.ptrace_fixation, np.nanmean)
+            dm_.mean_fixation[sdm] = reduce(sdm.baseline, np.nanmean)
     print('Mean pupil size and slopes were computed over the whole listening phase for each trial.')
         
     # Create new variables 
@@ -427,7 +405,7 @@ def preprocess_dm(dm_to_process):
     print(f'Number of trials left per participant: {np.sort(Counter(dm_.subject_nr), axis=None)}')
     print(f'How many participants have n number of trials: {Counter(Counter(dm_.subject_nr).values())}')
     
-    dm_ = dm_.pupil_change != NAN
+    dm_ = dm_.pupil_change != NAN # keep only valid pairs of mean pupil size
     print(f'After preprocessing: N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
     
     # Quick visualisation
@@ -502,11 +480,15 @@ def preprocess_dm(dm_to_process):
     plt.tight_layout()
     plt.show()
         
-    # How many participants have a mean positive score (averaged across all subtypes)?
-    for s, sdm in ops.split(dm_.suptype):
-        N = len(sdm.subject_nr.unique)
-        n = len(set(sdm.subject_nr[sdm.pupil_change > 0]))
-        print(f'{s}: {round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
+    # Spot participants with only invalid data
+    all_nan = []
+    for s, sdm in ops.split(dm_.subject_nr):
+        if (count_nonnan(sdm.pupil_change) == 0):
+            all_nan.append(s)
+    
+    print(f'{all_nan} with all nan-values for pupil changes.')
+    dm_ = dm_.subject_nr != set(all_nan)
+    print(f'After preprocessing: N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
 
     return dm_
 
@@ -515,10 +497,6 @@ def create_control_variables(original_dm):
     # Create copy of dm to not overwrite it
     dm = original_dm.subject_nr != ''
     
-    dm.superscore = NAN
-    for p, sdm in ops.split(dm.trialid):
-        dm.superscore[sdm] = (sdm.response_vivid + np.abs(sdm.response_effort - 3) + (sdm.emotional_intensity + 1)/4 * 5)/3
-        
     # Effort, valence, etc.
     dm.vivid_changes, dm.val_changes, dm.emo_changes, dm.effort_changes = NAN, NAN, NAN, NAN
     dm.mean_diff = NAN
@@ -528,7 +506,9 @@ def create_control_variables(original_dm):
         dm.effort_changes[sdm] = sdm.response_effort[sdm.type =='dark'].mean - sdm.response_effort[sdm.type =='light'].mean 
         dm.val_changes[sdm] = sdm.response_val[sdm.type =='dark'].mean - sdm.response_val[sdm.type =='light'].mean 
         dm.emo_changes[sdm] = sdm.emotional_intensity[sdm.type =='dark'].mean - sdm.emotional_intensity[sdm.type =='light'].mean 
-        dm.mean_diff[sdm] = sdm.superscore[sdm.type =='dark'].mean - sdm.superscore[sdm.type =='light'].mean 
+        
+    # New variables free of variation between types
+    dm.vivid = dm.mean_vivid - np.abs(dm.vivid_changes)
 
     # How many non-nan values in the pupil time series?
     dm.nonnan_pupil = NAN
@@ -566,12 +546,16 @@ def create_control_variables(original_dm):
         sdm = sdm.pupil_change != NAN
         print(f'{s}: {len(sdm[sdm.order_changes < 0])/len(sdm) * 100} % of trial pairs in the dark->bright order (n = {len(sdm)})')
 
+    # Pupil-size changes during the fixation phase of 1s
+    dm.fix_changes = NAN
+    for subject, ssdm in ops.split(dm.subject_nr):
+        dm.fix_changes[ssdm] = list(ssdm.mean_fixation[ssdm.type == 'dark'] - ssdm.mean_fixation[ssdm.type == 'light'])[0]
     
     return dm
 
-def plot_bars(dm, x=str, y=str, hue=None, hue_order=['light', 'dark', 'light_dark', 'dark_light'], order=None, color=None, pal='deep', xlab='Condition', ylab='Mean Pupil Size (a.u.)', title='', fig=True, alpha=1, legend=True):
+def plot_bars(dm, x=str, y=str, hue=None, hue_order=['light', 'dark', 'light_dark', 'dark_light'], order=None, color=None, pal='deep', xlab='Condition', ylab='Mean Pupil Size (a.u.)', title='', fig=True, alpha=1, legend=True, fs=30):
     """Plot the mean pupil size as bar plots."""
-    plt.rcParams['font.size'] = 30
+    plt.rcParams['font.size'] = fs
     if fig == True:
         plt.figure(figsize=(15,8))
         plt.subplot(1,1,1)
@@ -586,7 +570,7 @@ def plot_bars(dm, x=str, y=str, hue=None, hue_order=['light', 'dark', 'light_dar
 
 
 # Stats
-def lm_pupil(dm_tst, formula=False, re_formula="1 + type", pupil_change=False, reml=False):
+def lm_pupil(dm_tst, formula=False, re_formula="1 + type", pupil_change=False, reml=False, method='Powell'):
     """Test how brightness (dark vs. light) affects the mean pupil size."""    
     # Make sure to filter the 'dynamic' condition
     dm_test = dm_tst.subtype != ''    
@@ -600,7 +584,7 @@ def lm_pupil(dm_tst, formula=False, re_formula="1 + type", pupil_change=False, r
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
 
-        dm_valid_data = ops.group(dm_valid_data, by=[dm_valid_data.subject_nr, dm_valid_data.suptype]) # add dm_sub.response_lang if necessary
+        dm_valid_data = ops.group(dm_valid_data, by=[dm_valid_data.subject_nr, dm_valid_data.suptype, dm_valid_data.is_outlier]) # add dm_sub.response_lang if necessary
 
         # Make sure to have only unique mean values for each variable per participant 
         for col in dm_valid_data.column_names:
@@ -612,7 +596,7 @@ def lm_pupil(dm_tst, formula=False, re_formula="1 + type", pupil_change=False, r
         warnings.filterwarnings("default", category=RuntimeWarning)
         warnings.filterwarnings("default", category=UserWarning)  
     
-    dm_valid_data.pupil_change = np.round(dm_valid_data.pupil_change, 10) 
+    dm_valid_data.pupil_change = np.round(dm_valid_data.pupil_change, 10) # this is to prevent issues with assumption checks
     dm_valid_data = dm_valid_data.pupil_change != NAN # make sure there's always at least 2 stories to compare
 
     # The model
@@ -620,7 +604,7 @@ def lm_pupil(dm_tst, formula=False, re_formula="1 + type", pupil_change=False, r
                      groups='subject_nr',
                      re_formula=re_formula)
     
-    mdf = md.fit(reml=reml, method='Powell')
+    mdf = md.fit(reml=reml, method=method)
         
     return mdf
 
@@ -695,44 +679,7 @@ def check_assumptions(model):
     warnings.filterwarnings("default", category=FutureWarning)
     warnings.filterwarnings("default", category=UserWarning)
 
-
-def test_pupil(dm, exclude, winlen, formula='pupil ~ type', re_formula='1 + type'):
-    # Only compare light and dark conditions (or not)
-    dm_tst = dm.suptype != exclude
-    dm_tst = dm_tst.pupil_change != NAN
-    
-    duration = int(dm_tst.duration.min)
-    print(duration)
-    dm_tst.pupil = dm_tst.pupil[:, 0:duration]
-    
-    results = tst.find(dm_tst, formula,
-                   groups='subject_nr', 
-                   re_formula=re_formula,
-                   winlen=winlen,
-                   split=4,
-                   suppress_convergence_warnings=True)
-            
-    print(tst.summarize(results))
-    
-    fig, axes = plt.subplots(1, 1, figsize=(28,10))
-    plt.subplot(1,1,1)#;plt.title('Rabbit trials')
-    sdm=dm_tst.suptype!=exclude
-    tst.plot(sdm, dv='pupil', hue_factor='type', hues=[blue[1], green[1]], 
-             legend_kwargs={'frameon': False, 'loc': 'lower left', 'labels': [f'Dark (N={len(sdm[sdm.type=="dark"])})', f'Bright (N={len(sdm[sdm.type=="light"])})']},
-             annotation_legend_kwargs={'frameon': False, 'loc': 'upper right'}, 
-             x0=0, sampling_freq=1)
-    #plt.legend(loc='lower center', frameon=True,ncol=2)#;plt.ylim([-800,800])
-    plt.xticks(np.arange(0, duration+500, 500), np.arange(0, int(duration/100)+5, 5))
-    plt.xlim([0, duration])
-    plt.xlabel('Time since story onset (s)', fontsize=40)
-    plt.ylabel('Baseline-corrected\npupil size (a.u.)', fontsize=45)
-    plt.tight_layout()
-    plt.show()
-    
-    return results
-
-
-def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVIQ', fig=True):
+def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVIQ', fig=True, fs=30):
     """Test the correlations between pupil measures and questionnaire measures using Spearman's correlation."""
     # Suppress warnings because it's annoying
     warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -769,6 +716,8 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
     print(res)
     
     # Plot the correlations (linear regression model fit)
+    plt.rcParams['font.size'] = fs
+
     if lab != False:
         label = fr'{lab}: {res}'
     else:
@@ -784,6 +733,11 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
 
 def dist_checks_wilcox(dm, suptype):
     """Non-parametric paired t-tests with Wilcoxon signed-rank test."""
+    # Suppress warnings because it's annoying
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=RuntimeWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)
+    
     dm_sub = dm.suptype == suptype
     dm_sub = ops.group(dm_sub, by=[dm_sub.subject_nr, dm_sub.type, dm_sub.order]) 
 
@@ -794,6 +748,10 @@ def dist_checks_wilcox(dm, suptype):
         
     print(f"\n{suptype} (n = {len(dm_sub[dm_sub.type == 'light'])})")
     print('Within participants: (light vs.dark)')
+    print(f"Condition: {wilcoxon(dm_sub.mean_pupil[dm_sub.type == 'light'], dm_sub.mean_pupil[dm_sub.type == 'dark'], alternative='less')}")
+    print(dm_sub.mean_pupil[dm_sub.type == 'light'].mean, dm_sub.mean_pupil[dm_sub.type == 'dark'].mean)
+    print(dm_sub.mean_pupil[dm_sub.type == 'light'].std, dm_sub.mean_pupil[dm_sub.type == 'dark'].std)
+
     print(f"Blinks: {wilcoxon(dm_sub.n_blinks[dm_sub.type == 'light'], dm_sub.n_blinks[dm_sub.type == 'dark'])}")
     print(dm_sub.n_blinks[dm_sub.type == 'light'].mean, dm_sub.n_blinks[dm_sub.type == 'dark'].mean)
     print(dm_sub.n_blinks[dm_sub.type == 'light'].std, dm_sub.n_blinks[dm_sub.type == 'dark'].std)
@@ -810,27 +768,54 @@ def dist_checks_wilcox(dm, suptype):
     print(dm_sub.mean_pupil[dm_sub.order == 'second'].mean, dm_sub.mean_pupil[dm_sub.order == 'first'].mean)
     print(dm_sub.mean_pupil[dm_sub.order == 'second'].std, dm_sub.mean_pupil[dm_sub.order == 'first'].std)
     
-    sdm = dm.suptype == suptype
-    sdm = ops.group(sdm, by=[sdm.subject_nr, sdm.version]) 
+    dm_sub = dm.suptype == suptype
+    dm_sub = ops.group(dm_sub, by=[dm_sub.subject_nr, dm_sub.version]) 
 
     # Make sure to have only unique mean values for each variable per participant 
-    for col in sdm.column_names:
-        if type(sdm[col]) != datamatrix._datamatrix._mixedcolumn.MixedColumn:
-            sdm[col] = reduce(sdm[col]) # Compute the mean per subtype 
+    for col in dm_sub.column_names:
+        if type(dm_sub[col]) != datamatrix._datamatrix._mixedcolumn.MixedColumn:
+            dm_sub[col] = reduce(dm_sub[col]) # Compute the mean per subtype 
        
     print('Between participants:')
-    print(f"Version: (2 vs. 1)\nPupil size: {mannwhitneyu(sdm.mean_pupil[sdm.version==2], sdm.mean_pupil[sdm.version==1])}")
-    print(sdm.mean_pupil[sdm.version == 2].mean, sdm.mean_pupil[sdm.version == 1].mean)
-    print(sdm.mean_pupil[sdm.version == 2].std, sdm.mean_pupil[sdm.version == 1].std)
     
-    print(f"Vividness: {mannwhitneyu(sdm.mean_vivid[sdm.version==2], sdm.mean_vivid[sdm.version==1])}")
-    print(sdm.mean_vivid[sdm.version == 2].mean, sdm.mean_vivid[sdm.version == 1].mean)
-    print(sdm.mean_vivid[sdm.version == 2].std, sdm.mean_vivid[sdm.version == 1].std)
+    print(f"Mean vividness per pupil-size changes polarity: {mannwhitneyu(dm_sub.mean_vivid[dm_sub.pupil_change>0], dm_sub.mean_vivid[dm_sub.pupil_change<0], alternative='greater')}")
+    print(dm_sub.mean_vivid[dm_sub.pupil_change>0].mean, dm_sub.mean_vivid[dm_sub.pupil_change<0].mean)
+    print(dm_sub.mean_vivid[dm_sub.pupil_change>0].std, dm_sub.mean_vivid[dm_sub.pupil_change<0].std)
 
-    print(f"Effort: {mannwhitneyu(sdm.effort_changes[sdm.version==2], sdm.mean_effort[sdm.version==1])}")
-    print(sdm.mean_effort[sdm.version == 2].mean, sdm.mean_effort[sdm.version == 1].mean)
-    print(sdm.mean_effort[sdm.version == 2].std, sdm.mean_effort[sdm.version == 1].std)
+    print(f"Version: (2 vs. 1)\nPupil size: {mannwhitneyu(dm_sub.mean_pupil[dm_sub.version==2], dm_sub.mean_pupil[dm_sub.version==1])}")
+    print(dm_sub.mean_pupil[dm_sub.version == 2].mean, dm_sub.mean_pupil[dm_sub.version == 1].mean)
+    print(dm_sub.mean_pupil[dm_sub.version == 2].std, dm_sub.mean_pupil[dm_sub.version == 1].std)
+    
+    print(f"Vividness: {mannwhitneyu(dm_sub.response_vivid[dm_sub.version==2], dm_sub.response_vivid[dm_sub.version==1])}")
+    print(dm_sub.response_vivid[dm_sub.version == 2].mean, dm_sub.response_vivid[dm_sub.version == 1].mean)
+    print(dm_sub.response_vivid[dm_sub.version == 2].std, dm_sub.response_vivid[dm_sub.version == 1].std)
 
-    print(f"Arousal: {mannwhitneyu(sdm.mean_emo[sdm.version==2], sdm.mean_emo[sdm.version==1])}")
-    print(sdm.mean_emo[sdm.version == 2].mean, sdm.mean_emo[sdm.version == 1].mean)
-    print(sdm.mean_emo[sdm.version == 2].std, sdm.mean_emo[sdm.version == 1].std)
+    print(f"Effort: {mannwhitneyu(dm_sub.effort_changes[dm_sub.version==2], dm_sub.mean_effort[dm_sub.version==1])}")
+    print(dm_sub.mean_effort[dm_sub.version == 2].mean, dm_sub.mean_effort[dm_sub.version == 1].mean)
+    print(dm_sub.mean_effort[dm_sub.version == 2].std, dm_sub.mean_effort[dm_sub.version == 1].std)
+
+    print(f"Arousal: {mannwhitneyu(dm_sub.mean_emo[dm_sub.version==2], dm_sub.mean_emo[dm_sub.version==1])}")
+    print(dm_sub.mean_emo[dm_sub.version == 2].mean, dm_sub.mean_emo[dm_sub.version == 1].mean)
+    print(dm_sub.mean_emo[dm_sub.version == 2].std, dm_sub.mean_emo[dm_sub.version == 1].std)
+    
+    # Default back
+    warnings.filterwarnings("default", category=FutureWarning)
+    warnings.filterwarnings("default", category=RuntimeWarning)
+    warnings.filterwarnings("default", category=UserWarning)
+    
+def individual_profile(df_to_plot, subject_nr, suptype='rabbit'):
+    """Plot individual profile to investigate."""
+    df = df_to_plot[df_to_plot.suptype == suptype]
+    df = df[df.subject_nr == subject_nr]
+    # Descriptives 
+    for type_ in ['rabbit', 'self']:
+        plt.figure(figsize=(32,10))
+        plt.suptitle(f"The {suptype} trials: Participant #{subject_nr} (version: {df.version.to_list()[0]})\nVVIQ: {df.VVIQ.to_list()[0]} | SUIS: {df.SUIS.to_list()[0]}\n Age: {df.age.to_list()[0]} | Sex: {df.sex.to_list()[0]}\n Pupil-diff score: {df.pupil_change.to_list()[0]}", fontsize=40)
+        plt.subplot(1,6,1);plot_bars(df, x='type', y='mean_pupil', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='Mean pupil size (a.u.)', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Imagine')
+        plt.subplot(1,6,2);plot_bars(df, x='type', y='mean_fixation', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Fixation')
+        plt.subplot(1,6,3);plot_bars(df, x='type', y='n_blinks', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Blinks')
+        plt.subplot(1,6,4);plot_bars(df, x='type', y='response_vivid', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Vividness')
+        plt.subplot(1,6,5);plot_bars(df, x='type', y='response_effort', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Effort')
+        plt.subplot(1,6,6);plot_bars(df, x='type', y='response_val', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='', alpha=0.7, fig=False, pal=palette[0:2], legend=False);plt.title('Emotions')
+        plt.tight_layout()
+        plt.show()

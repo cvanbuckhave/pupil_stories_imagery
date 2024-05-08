@@ -20,7 +20,7 @@ from datamatrix import convert
 from custom_func import (get_raw, merge_dm_df, check_blinks, preprocess_dm, plot_bars,
                          lm_pupil, compare_models, create_control_variables,
                          test_correlation, check_assumptions,
-                         dist_checks_wilcox)
+                         dist_checks_wilcox, individual_profile)
 from collections import Counter
 import time_series_test as tst
 
@@ -30,7 +30,7 @@ cwd='C:/Users/cvanb/Desktop/visual_imagery_pupil/study 2/' # manual
 datafolder=cwd+'/data/' # the folder where the EDF files are
 questfile='/results-survey.csv' # the questionnaire data
 
-np.random.seed(123)  # Fix random seed for predictable outcomes
+np.random.seed(123)  # Fix random seed for predictable outcomes if any random stuff happening
 palette = [green[1], blue[1], gray[2], gray[3]]
 
 # =============================================================================
@@ -60,75 +60,92 @@ dm_ = merge_dm_df(dm_, df)
 # Add useful variables 
 dm_ctrl = create_control_variables(dm_)
 
+# Convert to pandas dataframe because it causes problems with seaborn to use datamatrix
+dm_df = convert.to_pandas(dm_ctrl)
+
+# Save to csv file (e.g., to play with the data in Jamovi)
+#dm_df.to_csv(cwd+'data_pupil.csv', index=True)
+#df.to_csv(cwd+'data_quest.csv', index=True)
+# dm_df_sub = dm_df[['mean_vivid', 'mean_effort', 'mean_emo', 'pupil_change', 'version', 'suptype']]
+# dm_df_sub.to_csv(cwd+'data_grouped.csv', index=True)
+# dm_df_sub = np.round(dm_df_sub.groupby(['suptype', 'version']).describe(),3)
+# dm_df_sub.to_csv(cwd+'descriptives_summary.csv', index=True)
+
 # =============================================================================
 # Statistical analyses
 # =============================================================================
 # 1. Mixed linear models on the mean pupil sizes
 for s, sdm in ops.split(dm_ctrl.suptype):
-    s='rabbit'
+    s = 'rabbit'
+    print(s)  
     sdm = dm_ctrl.suptype == s
-    print(s)    
+
     # A. Main effect of brightness condition 
-    m1 = lm_pupil(sdm, formula = 'mean_pupil ~ type', re_formula = '1 + type + order', reml=False)
+    m1 = lm_pupil(sdm, formula = 'mean_pupil ~ type', re_formula = '1 + type')
     check_assumptions(m1) # OK
     
     print(m1.summary())
-    m1.tvalues, m1.pvalues = np.round(m1.tvalues, 3), np.round(m1.pvalues, 3)
-    
+    m1.tvalues, m1.pvalues = np.round(m1.tvalues, 4), np.round(m1.pvalues, 4)
+    print(f'z = {m1.tvalues[1]}, p = {m1.pvalues[1]}, n = {len(m1.random_effects)}')
+
     # B. Interaction with vividness
-    m2 = lm_pupil(sdm, formula = 'mean_pupil ~ type * response_vivid', re_formula = '1 + type + order', reml=False)
+    m2 = lm_pupil(sdm, formula = 'mean_pupil ~ type * response_vivid', re_formula = '1 + type')
     check_assumptions(m2) # OK
     
     print(m2.summary())
     m2.tvalues, m2.pvalues = np.round(m2.tvalues, 3), np.round(m2.pvalues, 3)
-    
+    print(f'z = {m2.tvalues[1]}, p = {m2.pvalues[1]}, n = {len(m2.random_effects)}')
+    print(f'z = {m2.tvalues[3]}, p = {m2.pvalues[3]}, n = {len(m2.random_effects)}')
+
     # Compare the models
     compare_models(m1, m2, 2) 
     print(m1.aic < m2.aic)
     
     # C. Pupil-size changes: Individual effects
     # MLM
-    m3 = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid', re_formula = '1 + mean_vivid', pupil_change=True, reml=False)    
+    if s == 'rabbit':
+        re_formula = '1 + mean_vivid + version'
+    else:
+        re_formula = '1 + version' # messes with assumption checks if add 'mean_vivid'
+    m3 = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid', re_formula = re_formula, pupil_change=True)    
     check_assumptions(m3) # OK
     
     print(m3.summary())
     m3.tvalues, m3.pvalues = np.round(m3.tvalues, 3), np.round(m3.pvalues, 3)
-    
-    # Spearman's rank correlation
-    test_correlation(sdm, x='pupil_change', y='mean_vivid', alt='greater', lab='Ratings', fig=False)
+    print(f'z = {m3.tvalues[1]}, p = {m3.pvalues[1]}, n = {len(m3.random_effects)}')
 
-    # D. Control for covariates
-    dist_checks_wilcox(sdm, s)
-
-    #m4 = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid + order_changes', re_formula = '1 + mean_vivid', pupil_change=True, reml=False)    
-    m4 = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid + effort_changes + emo_changes', re_formula = '1 + mean_vivid', pupil_change=True, reml=False)    
-    check_assumptions(m4) # OK
-    
-    print(m4.summary())
-    m4.tvalues, m4.pvalues = np.round(m4.tvalues, 3), np.round(m4.pvalues, 3)
-    
-    # Compare the models
-    compare_models(m3, m4, 2) # Adding one more column to the data (one more input variable) would add one more degree of freedom for the model.
-    print(m1.aic < m2.aic)
-    
-    # E. Spearman's correlation
+    # D. Spearman's correlation
     sdm_ = sdm.SUIS != ''
-    test_correlation(sdm_, x='SUIS', y='VVIQ', alt='greater', lab='Ratings', fig=False)
-    test_correlation(sdm_, x='mean_vivid', y='VVIQ', alt='greater', lab='Ratings', fig=False)
-    test_correlation(sdm_, x='mean_vivid', y='SUIS', alt='greater', lab='Ratings', fig=False)
-
-    test_correlation(sdm, x='mean_vivid', y='mean_emo', alt='greater', lab='Ratings', fig=False)
-    test_correlation(sdm, x='mean_vivid', y='mean_effort', alt='less', lab='Ratings', fig=False)
-
-    test_correlation(sdm, x='pupil_change', y='effort_changes', alt='greater', lab='Ratings', fig=False)
-    test_correlation(sdm, x='pupil_change', y='vivid_changes', alt='less', lab='Ratings', fig=False)
-    test_correlation(sdm, x='pupil_change', y='emo_changes', alt='greater', lab='Ratings', fig=False)
-
-    test_correlation(sdm, x='pupil_change', y='mean_emo', alt='greater', lab='Ratings', fig=False)
-    test_correlation(sdm, x='pupil_change', y='mean_effort', alt='less', lab='Ratings', fig=False)
-    
+    test_correlation(sdm, x='pupil_change', y='mean_vivid', alt='greater', lab='Ratings', fig=False)
     test_correlation(sdm_, x='pupil_change', y='VVIQ', alt='greater', lab='Ratings', fig=False)
     test_correlation(sdm_, x='pupil_change', y='SUIS', alt='greater', lab='Ratings', fig=False)
+    
+    # E. Add covariates
+    dist_checks_wilcox(sdm, s)
+
+    m4 = lm_pupil(sdm, formula = 'pupil_change ~ vivid + emo_changes', re_formula = re_formula, pupil_change=True)  
+    m5 = lm_pupil(sdm, formula = 'pupil_change ~ vivid + effort_changes', re_formula = re_formula, pupil_change=True)  
+
+    check_assumptions(m4) # OK
+    check_assumptions(m5) # OK
+
+    print(m4.summary())
+    print(m5.summary())
+
+    m4.tvalues, m4.pvalues = np.round(m4.tvalues, 3), np.round(m4.pvalues, 3)
+    print(f'z = {m4.tvalues[1]}, p = {m4.pvalues[1]}, n = {len(m4.random_effects)}')
+    print(f'z = {m4.tvalues[2]}, p = {m4.pvalues[2]}, n = {len(m4.random_effects)}')
+    print(f'z = {m4.tvalues[3]}, p = {m4.pvalues[3]}, n = {len(m4.random_effects)}')
+
+# General correlations with questionnaires
+dm_cor = dm_ctrl.SUIS != ''
+test_correlation(dm_cor, x='SUIS', y='VVIQ', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='VVIQ', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='SUIS', alt='greater', lab='Ratings', fig=False)
+
+test_correlation(dm_cor, x='mean_vivid', y='mean_emo', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='mean_val', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='mean_effort', alt='less', lab='Ratings', fig=False)
 
 # =============================================================================
 # Visualisation: Group effects (barplots)
@@ -137,6 +154,7 @@ for s, sdm in ops.split(dm_ctrl.suptype):
 fig, axes = plt.subplots(1, 1, figsize=(28,10))
 plt.subplot(1,1,1)
 sdm=dm_ctrl.suptype=='rabbit'
+#sdm = sdm.version == 2
 tst.plot(sdm, dv='pupil', hue_factor='type', hues=[blue[1], green[1]], 
          legend_kwargs={'frameon': False, 'loc': 'lower center', 'ncol': 2, 'fontsize': 40,'labels': [f'Dark (N={len(sdm[sdm.type=="dark"])})', f'Bright (N={len(sdm[sdm.type=="light"])})']},
          annotation_legend_kwargs={'frameon': False, 'loc': 'upper right'}, 
@@ -165,45 +183,41 @@ plt.tight_layout()
 plt.show()
 
 # 2. Mean pupil size per condition and interactions with vividness ratings 
-# Convert to pandas dataframe because it causes problems with seaborn to use datamatrix
-dm_df = convert.to_pandas(dm_ctrl)
-
-# Save to csv file 
-# dm_df.to_csv(cwd+'data.csv', index=True)
-# dm_df_sub = dm_df[['mean_vivid', 'mean_effort', 'mean_emo', 'pupil_change', 'version', 'suptype']]
-# dm_df_sub.to_csv(cwd+'data_grouped.csv', index=True)
-# dm_df_sub = np.round(dm_df_sub.groupby(['suptype', 'version']).describe(),3)
-# dm_df_sub.to_csv(cwd+'descriptives_summary.csv', index=True)
-
         # RABBIT STORIES
 dm_sub0 = dm_df[dm_df.suptype == 'rabbit']
-fig, axes = plt.subplots(1, 3, figsize=(35,10))
-#plt.suptitle('Rabbit stories', fontsize=45)
-fig.subplots_adjust(wspace=0.6)
-ax=plt.subplot(1,3,1)
+fig, axes = plt.subplots(1, 4, figsize=(47,12))
+fig.subplots_adjust(wspace=0.3)
+ax=plt.subplot(1,4,1)
 plot_bars(dm_sub0, x='type', y='mean_pupil', hue=None, hue_order=None, order=['light', 'dark'], pal=palette[0:2], fig=False, alpha=0.7, ylab='Pupil-size means (a.u.)', xlab='Condition')
 handles, labels = ax.get_legend_handles_labels()
-plt.text(s='B', x=-1.1, y=30, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
-ax=plt.subplot(1,3,2)
+plt.text(s='B', x=-1.0, y=30, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
+ax=plt.subplot(1,4,2)
 dm_sub0 = dm_sub0[dm_sub0.mean_pupil != '']
-plot_bars(dm_sub0, x='response_vivid', y='mean_pupil', hue='type', hue_order=['light', 'dark'], ylab='Pupil-size means (a.u.)', pal=palette[0:2], xlab='Trial-by-trial vividness\nratings', title=None, fig=False, alpha=0.7)
+plot_bars(dm_sub0, x='response_vivid', y='mean_pupil', hue='type', hue_order=['light', 'dark'], ylab='Pupil-size means (a.u.)', pal=palette[0:2], xlab='Trial-by-trial vividness ratings', title=None, fig=False, alpha=0.7)
 handles, labels = ax.get_legend_handles_labels()
 plt.legend(handles=handles, labels=['Bright', 'Dark'], frameon=False)
-plt.text(s='C', x=-2.0, y=70, fontsize=65)
-ax=plt.subplot(1,3,3)
-plt.text(s='D', x=-3.0, y=1350, fontsize=65)
-plot_bars(dm_sub0, x='mean_vivid', y='pupil_change', hue=None, hue_order=None, ylab='Pupil-size mean differences\n(a.u.) (Dark - Bright)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
+plt.text(s='C', x=-1.5, y=70, fontsize=65)
+ax=plt.subplot(1,4,3)
+plt.text(s='D', x=-2.5, y=1350, fontsize=65);plt.yticks(range(-1250, 1500, 250), fontsize=20)
+plot_bars(dm_sub0, x='mean_vivid', y='pupil_change', hue=None, hue_order=None, ylab='Pupil-size mean differences (a.u.)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
+ax=plt.subplot(1,4,4)
+plt.text(s='E', x=-2500, y=7.15, fontsize=65)
+dm_cor = dm_ctrl.suptype == 'rabbit'
+#test_correlation(dm_cor, x='mean_vivid', y='pupil_change', alt='greater', fig=True, lab='Ratings')
+dm_cor = dm_cor.SUIS != ''
+test_correlation(dm_cor, y='VVIQ', x='pupil_change', alt='greater', fig=True, lab='VVIQ', color='green', fs=35)
+test_correlation(dm_cor, y='SUIS', x='pupil_change', alt='greater', fig=True, lab='SUIS', color='violet', fs=35)
+plt.xlabel('Pupil-size mean differences (a.u.)');plt.ylabel('Mean questionnaire scores');plt.ylim([0.9, 7]);plt.yticks(range(1, 6))
 plt.show()
 
 # SELF TRIALS
 dm_sub0 = dm_df[dm_df.suptype == 'self']
 fig, axes = plt.subplots(1, 3, figsize=(35,10))
-#plt.suptitle('Rabbit stories', fontsize=45)
 fig.subplots_adjust(wspace=0.6)
 ax=plt.subplot(1,3,1)
 plot_bars(dm_sub0, x='type', y='mean_pupil', hue=None, hue_order=None, order=['light', 'dark'], pal=palette[0:2], fig=False, alpha=0.7, ylab='Pupil-size means (a.u.)', xlab='Condition')
 handles, labels = ax.get_legend_handles_labels()
-plt.text(s='B', x=-1.1, y=150, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
+plt.text(s='B', x=-1.1, y=192, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
 ax=plt.subplot(1,3,2)
 dm_sub0 = dm_sub0[dm_sub0.mean_pupil != '']
 plot_bars(dm_sub0, x='response_vivid', y='mean_pupil', hue='type', hue_order=['light', 'dark'], ylab='Pupil-size means (a.u.)', pal=palette[0:2], xlab='Trial-by-trial vividness\nratings', title=None, fig=False, alpha=0.7)
@@ -215,9 +229,13 @@ plt.text(s='D', x=-3.0, y=1080, fontsize=65)
 plot_bars(dm_sub0, x='mean_vivid', y='pupil_change', hue=None, hue_order=None, ylab='Pupil-size mean differences\n(a.u.) (Dark - Bright)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
 plt.show()
 
-# # =============================================================================
-# # Controls (possible covariates)
-# # =============================================================================
+# =============================================================================
+# Controls (possible covariates)
+# =============================================================================
+# Try to find why negative scores
+dm_df['is_positive'] = np.where(dm_df['pupil_change']>0, 'Yes', 'No')
+dm_df['version_order'] = np.where(dm_df['version']==1, 'Bright first', 'Dark first')
+
 # # Other effects on mean pupil size and slopes (controls)
 # for s, dm_sub in ops.split(dm_ctrl.suptype):
 #     sub_df = convert.to_pandas(dm_sub)
@@ -251,88 +269,60 @@ plt.show()
 for type_ in ['rabbit', 'self']:
     plt.figure(figsize=(30,7))
     plt.suptitle(type_, fontsize=40)
-    plt.subplot(1,4,1);plot_bars(dm_df[dm_df.suptype == type_], x='version', y='mean_pupil', hue='type', order=[1, 2], color='black', xlab='Version', hue_order=['light', 'dark'], ylab='Mean pupil size (a.u.)', alpha=0.7, fig=False, pal=palette[0:2], legend=True)
+    plt.subplot(1,4,1);plot_bars(dm_df[dm_df.suptype == type_], x='version', y='mean_pupil', hue='type', order=[1, 2], color='black', xlab='Order', hue_order=['light', 'dark'], ylab='Mean pupil size (a.u.)', alpha=0.7, fig=False, pal=palette[0:2], legend=True)#;plt.ylim([2800, 5000])
     plt.legend(ncol=2, title='Condition', fontsize=20);plt.xticks(range(0,2), ['Bright first', 'Dark first'])
-    plt.subplot(1,4,2);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='mean_vivid', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='Vividness', alpha=0.7, fig=False, pal=palette[0:2], legend=False)
-    plt.subplot(1,4,3);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='response_effort', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='Mental effort', alpha=0.7, fig=False, pal=palette[0:2], legend=False)
-    plt.subplot(1,4,4);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='emotional_intensity', hue='type', color='black', xlab='Condition', order=['light', 'dark'], hue_order=['light', 'dark'], ylab='Emotional intensity', alpha=0.7, fig=False, pal=palette[0:2], legend=False)
+    plt.subplot(1,4,2);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='response_vivid', hue='version', color='black', xlab='Order', order=['light', 'dark'], hue_order=None, ylab='Vividness', alpha=0.7, fig=False, pal=palette[0:2], legend=True);plt.ylim([1, 5])
+    plt.legend(ncol=2, title='Condition', fontsize=20);plt.xticks(range(0,2), ['Bright first', 'Dark first'])
+    plt.subplot(1,4,3);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='response_effort', hue='version', color='black', xlab='Condition', order=['light', 'dark'], hue_order=None, ylab='Mental effort', alpha=0.7, fig=False, pal=palette[0:2], legend=True);plt.ylim([-2, 2])
+    plt.legend(ncol=2, title='Condition', fontsize=20);plt.xticks(range(0,2), ['Bright first', 'Dark first'])
+    plt.subplot(1,4,4);plot_bars(dm_df[dm_df.suptype == type_], x='type', y='emotional_intensity', hue='version', color='black', xlab='Condition', order=['light', 'dark'], hue_order=None, ylab='Emotional intensity', alpha=0.7, fig=False, pal=palette[0:2], legend=True);plt.ylim([0, 3])
+    plt.legend(ncol=2, title='Condition', fontsize=20);plt.xticks(range(0,2), ['Bright first', 'Dark first'])
     plt.tight_layout()
     plt.show()
 
-# Try to find why negative scores
-dm_df['is_positive'] = np.where(dm_df['pupil_change']>0, 'Yes', 'No')
+# plt.figure(figsize=(10,8))
+# dm_sub = dm_df[dm_df.suptype == 'rabbit']
+# plot_bars(dm_sub, x='version_order', y='mean_pupil', hue='order', hue_order=None, fig=False, legend=True, ylab='Vividness', xlab='Presentation order', fs=25)
+# plt.legend(ncol=2, title='Order', fontsize=20)
+# plt.tight_layout()
+# plt.show()
+
 #dm_df = dm_df[dm_df.SUIS != '']
 subdm_df = dm_df[dm_df.suptype == 'rabbit']
 #subdm_df.drop_duplicates(subset=['subject_nr'], keep='first', inplace=True) 
 
-sns.catplot(subdm_df, x='is_positive', y='response_effort', hue='type', order=['Yes', 'No'], palette=palette[0:2], hue_order=['light', 'dark'], alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='response_effort', hue='type', order=['Yes', 'No'], hue_order=['light', 'dark'], fill=False, palette=palette[0:2])
-sns.pointplot(subdm_df, x='is_positive', y='response_effort', order=['Yes', 'No'], hue='type', hue_order=['light', 'dark'], legend=False, color='black', errorbar=('se'), dodge=0.4)
-plt.xlabel('Positive pupil-size differences');plt.ylabel('Effort ratings')
-plt.tight_layout()
-plt.show()
+individual_profile(dm_df, 30) # aphantasia + v1
 
-sns.catplot(subdm_df, x='is_positive', y='emotional_intensity', hue='type', order=['Yes', 'No'], palette=palette[0:2], hue_order=['light', 'dark'], alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='emotional_intensity', hue='type', order=['Yes', 'No'], hue_order=['light', 'dark'], fill=False, palette=palette[0:2])
-sns.pointplot(subdm_df, x='is_positive', y='emotional_intensity', order=['Yes', 'No'], hue='type', hue_order=['light', 'dark'], legend=False, color='black', errorbar=('se'), dodge=0.4)
-plt.xlabel('Positive pupil-size differences');plt.ylabel('Emotional intensity ratings')
-plt.tight_layout()
-plt.show()
-
-sns.catplot(subdm_df, x='is_positive', y='response_vivid', hue='type', order=['Yes', 'No'], palette=palette[0:2], hue_order=['light', 'dark'], alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='response_vivid', hue='type', order=['Yes', 'No'], hue_order=['light', 'dark'], fill=False, palette=palette[0:2])
-sns.pointplot(subdm_df, x='is_positive', y='response_vivid', order=['Yes', 'No'], hue='type', hue_order=['light', 'dark'], legend=False, color='black', errorbar=('se'), dodge=0.4)
-plt.xlabel('Positive pupil-size differences');plt.ylabel('Vividness ratings')
-plt.tight_layout()
-plt.show()
-
-sns.catplot(subdm_df, x='is_positive', y='VVIQ', hue=None, order=['Yes', 'No'], palette='hls', hue_order=None, alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='VVIQ', hue=None, order=['Yes', 'No'], hue_order=None, fill=False, palette='hls')
-sns.pointplot(subdm_df, x='is_positive', y='VVIQ', order=['Yes', 'No'], hue=None, hue_order=None, legend=False, color='black', errorbar=('se'))
-plt.xlabel('Positive pupil-size differences');plt.ylabel('VVIQ')
-plt.tight_layout()
-plt.show()
-
-sns.catplot(subdm_df, x='is_positive', y='SUIS', hue=None, order=['Yes', 'No'], palette='hls', hue_order=None, alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='SUIS', hue=None, order=['Yes', 'No'], hue_order=None, fill=False, palette='hls')
-sns.pointplot(subdm_df, x='is_positive', y='SUIS', order=['Yes', 'No'], hue=None, hue_order=None, legend=False, color='black', errorbar=('se'))
-plt.xlabel('Positive pupil-size differences');plt.ylabel('SUIS');plt.ylim([1, 5])
-plt.tight_layout()
-plt.show()
-
-sns.catplot(subdm_df, x='is_positive', y='age', hue=None, order=['Yes', 'No'], palette='hls', hue_order=None, alpha=0.5, height=10, legend=False)
-sns.boxplot(subdm_df, x='is_positive', y='age', hue=None, order=['Yes', 'No'], hue_order=None, fill=False, palette='hls')
-sns.pointplot(subdm_df, x='is_positive', y='age', order=['Yes', 'No'], hue=None, hue_order=None, legend=False, color='black', errorbar=('se'))
-plt.xlabel('Positive pupil-size differences');plt.ylabel('Age');plt.ylim([17, 32])
-plt.tight_layout()
-plt.show()
+dm_neg = dm_ctrl.pupil_change < 0
+dm_neg = dm_neg.suptype == 'rabbit'
+Counter(dm_neg.version)
 
 # =============================================================================
 # Aphantasia (descriptives)
 # =============================================================================
-plt.figure(figsize=(30,10))
-plt.subplot(1,3,1);plot_bars(dm_df, x='type', y='response_val', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Emotional Valence', alpha=0.5, fig=False);plt.ylim([-3,3])
-plt.subplot(1,3,2);plot_bars(dm_df, x='type', y='response_effort', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Effort ratings', alpha=0.5, fig=False);plt.ylim([-2,2])
-plt.subplot(1,3,3);plot_bars(dm_df, x='type', y='response_vivid', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Vividness ratings', alpha=0.5, fig=False);plt.ylim([0.9,5])
-plt.tight_layout()
-plt.show()
+# plt.figure(figsize=(30,10))
+# plt.subplot(1,3,1);plot_bars(dm_df, x='type', y='response_val', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Emotional Valence', alpha=0.5, fig=False);plt.ylim([-3,3])
+# plt.subplot(1,3,2);plot_bars(dm_df, x='type', y='response_effort', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Effort ratings', alpha=0.5, fig=False);plt.ylim([-2,2])
+# plt.subplot(1,3,3);plot_bars(dm_df, x='type', y='response_vivid', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Vividness ratings', alpha=0.5, fig=False);plt.ylim([0.9,5])
+# plt.tight_layout()
+# plt.show()
 
-plt.figure(figsize=(30,20))
-dm_sub = dm_df[dm_df.pupil_change != '']
-plt.subplot(2,2,1);plot_bars(dm_sub, x='type', y='mean_effort', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean effort ratings', alpha=0.5, fig=False);plt.ylim([-2,2])
-plt.subplot(2,2,2);plot_bars(dm_sub, x='type', y='mean_vivid', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean vividness ratings', alpha=0.5, fig=False);plt.ylim([1,5])
-plt.subplot(2,2,3);plot_bars(dm_sub, x='type', y='response_val', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean valency ratings', alpha=0.5, fig=False);plt.ylim([-3,3.5])
-plt.subplot(2,2,4);plot_bars(dm_sub, x='aphantasia', y='pupil_change', hue_order=None, pal=['black', 'orange', 'red'], xlab='Aphantasia (mean VVIQ score < 2)', ylab='Pupil-size mean differences\n (Dark - Bright) (a.u.)', alpha=0.5, fig=False)
-plt.tight_layout()
-plt.show()
+# plt.figure(figsize=(30,20))
+# dm_sub = dm_df[dm_df.pupil_change != '']
+# plt.subplot(2,2,1);plot_bars(dm_sub, x='type', y='mean_effort', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean effort ratings', alpha=0.5, fig=False);plt.ylim([-2,2])
+# plt.subplot(2,2,2);plot_bars(dm_sub, x='type', y='mean_vivid', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean vividness ratings', alpha=0.5, fig=False);plt.ylim([1,5])
+# plt.subplot(2,2,3);plot_bars(dm_sub, x='type', y='response_val', order=['light', 'dark'], hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Condition', ylab='Mean valency ratings', alpha=0.5, fig=False);plt.ylim([-3,3.5])
+# plt.subplot(2,2,4);plot_bars(dm_sub, x='aphantasia', y='pupil_change', hue_order=None, pal=['black', 'orange', 'red'], xlab='Aphantasia (mean VVIQ score < 2)', ylab='Pupil-size mean differences\n (Dark - Bright) (a.u.)', alpha=0.5, fig=False)
+# plt.tight_layout()
+# plt.show()
 
-plt.figure(figsize=(20,10))
-sdm = dm_df[dm_df.suptype == 'rabbit']
-plt.subplot(1,2,1);plot_bars(sdm, x='version', y='pupil_change', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Version', ylab='Pupil-size mean differences\n (Dark - Bright) (a.u.)', alpha=0.5, fig=False);plt.title('Rabbit')
-sdm = dm_df[dm_df.suptype == 'self'] 
-plt.subplot(1,2,2);plot_bars(sdm, x='version', y='pupil_change', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Version', ylab='Pupil-size mean differences (a.u.)\n (Dark - Bright)', alpha=0.5, fig=False);plt.title('Self-chosen')
-plt.tight_layout()
-plt.show()
+# plt.figure(figsize=(20,10))
+# sdm = dm_df[dm_df.suptype == 'rabbit']
+# plt.subplot(1,2,1);plot_bars(sdm, x='version', y='pupil_change', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Version', ylab='Pupil-size mean differences\n (Dark - Bright) (a.u.)', alpha=0.5, fig=False);plt.title('Rabbit')
+# sdm = dm_df[dm_df.suptype == 'self'] 
+# plt.subplot(1,2,2);plot_bars(sdm, x='version', y='pupil_change', hue='aphantasia', hue_order=None, pal=['black', 'orange', 'red'], xlab='Version', ylab='Pupil-size mean differences (a.u.)\n (Dark - Bright)', alpha=0.5, fig=False);plt.title('Self-chosen')
+# plt.tight_layout()
+# plt.show()
 
 # =============================================================================
 # Visualisation: Individual effects (point plots)
