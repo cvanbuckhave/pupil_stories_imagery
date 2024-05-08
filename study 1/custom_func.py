@@ -25,7 +25,7 @@ import scipy.stats as stats
 import statsmodels.api as sm
 import pingouin as pg
 from statsmodels.formula.api import mixedlm
-from scipy.stats import spearmanr, shapiro, kstest, wilcoxon
+from scipy.stats import spearmanr, shapiro, kstest, wilcoxon, mannwhitneyu
 from statsmodels.stats.diagnostic import het_white
 from scipy.stats.distributions import chi2
 from collections import Counter
@@ -164,7 +164,7 @@ def create_control_variables(original_dm):
             dm.category[sdm] = 'Dynamic'
         else:
             dm.category[sdm] = 'Non-dynamic'
-            
+    
     # Effort, valence, etc.
     dm.vivid_changes, dm.val_changes, dm.emo_changes, dm.effort_changes = NAN, NAN, NAN, NAN
     for p, s, sdm in ops.split(dm.subject_nr, dm.subtype):
@@ -220,7 +220,7 @@ def merge_dm_df(dm_to_merge, df):
     print('Datamatrix and dataframe match in terms of participants: {list(np.sort(df.Q00ID)) == list(np.sort(new))}')
 
     # Compute the mean VVIQ score for each participant
-    VVIQ_cols = [i for i in df.columns if i.startswith('VVIQQ')]
+    VVIQ_cols = [i for i in df.columns if i.startswith('VVIQQ0')]
     df['VVIQ'] = df[VVIQ_cols].mean(axis=1)
     print(f"Cronbach's alpha for VVIQ: {pg.cronbach_alpha(data=df[VVIQ_cols])}")
     
@@ -410,22 +410,23 @@ def preprocess_dm(dm_to_process):
     # Exclude participants with an abusive number of blinks (+ 2 SD)
     print(f'Before trial exclusion (blinks): N = {len(dm_)} trials.')
     dm_.z_blinks = ops.z(dm_.n_blinks) # z-transform
+    thresh = 2 # above 2 SD
 
     plt.figure(figsize=(13,8));warnings.filterwarnings("ignore", category=UserWarning)  
-    sns.distplot(dm_.z_blinks);plt.axvline(-2);plt.axvline(2)
+    sns.distplot(dm_.z_blinks);plt.axvline(thresh)
     plt.xlabel('Blink rate per minute (z-scored)')
     plt.tight_layout()
     plt.show();warnings.filterwarnings("default", category=UserWarning)  
 
-    blinky = set(dm_.subject_nr[dm_.z_blinks > 2.0])
-    print(f'{len(blinky)} participants with a lot of blinks ({dm_.n_blinks[dm_.z_blinks > 2.0].unique}; M = {dm_.n_blinks.mean}, STD = {dm_.n_blinks.std})')
+    blinky = list(dm_.subject_nr[dm_.z_blinks > thresh])
+    print(f'{len(blinky)} trials ({len(set(blinky))} participants) with a lot of blinks ({dm_.n_blinks[dm_.z_blinks > thresh].unique}; M = {dm_.n_blinks.mean}, STD = {dm_.n_blinks.std})')
     print(blinky)
     
-    dm_ = dm_.z_blinks <= 2.0 # exclude those above
+    dm_ = dm_.z_blinks <= thresh # exclude those above
     print(f'After trial exclusion (blinks): N = {len(dm_)} trials.')
 
     # Trim tails
-    dm_.pupil = srs.trim(dm_.pupil, value=NAN, end=True, start=True)
+    dm_.ptrace_target = srs.trim(dm_.ptrace_target, value=NAN, end=True, start=True)
     
     # Check number of nan values per trial
     dm_.nonnan_pupil = ''
@@ -442,21 +443,14 @@ def preprocess_dm(dm_to_process):
     
     dm_ = dm_.nonnan_pupil >= 50 # keep relevant trials
     
-    # Per participant
-    #plot_traces(dm_, by='by-participant', bl=True)
-    
     # Interpolate the first and last 200 milliseconds of each trace (to not have unreconstructed blinks
     # taken into account when doing the baseline correction and prevent edge effects)
-    dm_.pupil[:, 0:20] = srs.interpolate(srs.concatenate(dm_.ptrace_fixation[:,80:100], dm_.pupil[:,0:20]))[:, 20:40]
-    #dm_.ptrace_fixation = srs.interpolate(dm_.ptrace_fixation[:, 0:100])
-    dm_.pupil[:, 3380:3420] = srs.interpolate(dm_.pupil[:, 3380:3420])
+    dm_.ptrace_target[:, 0:20] = srs.interpolate(srs.concatenate(dm_.ptrace_fixation[:,80:100], dm_.ptrace_target[:,0:20]))[:, 20:40]
+    dm_.ptrace_target[:, 3380:3420] = srs.interpolate(dm_.ptrace_target[:, 3380:3420])
     print('Pupil size traces linearly interpolated from 0 to 200 ms.')
        
-    # Per participant
-    #plot_traces(dm_, by='by-participant', bl=True)
-    
     # Smooth the traces to reduce the jitter
-    dm_.pupil = srs.smooth(dm_.pupil, 51) 
+    dm_.pupil = srs.smooth(dm_.ptrace_target, 51) 
     print('Pupil size traces smoothed with a Hanning window of size 51.')
     
     # Exclude trials with unrealistic mean pupil-size (outliers) 
@@ -530,12 +524,20 @@ def preprocess_dm(dm_to_process):
         dm_.mean_val[sdm] = sdm.response_val.mean
         dm_.mean_emo[sdm] = sdm.emotional_intensity.mean
 
+
     # How many trials left per participant?
     print(f'Number of trials left per participant: {np.sort(Counter(dm_.subject_nr), axis=None)}')
     print(f'How many participants have n number of trials: {Counter(Counter(dm_.subject_nr).values())}')
     
-    print(f'N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
+    all_nan = []
+    for s, sdm in ops.split(dm_.subject_nr):
+        if (count_nonnan(sdm.pupil_change) == 0) and (count_nonnan(sdm.slope_change) == 0):
+            all_nan.append(s)
     
+    print(f'{all_nan} with both all nan-values for pupil changes and pupil slopes.')
+    dm_ = dm_.subject_nr != set(all_nan)
+    print(f'After preprocessing: N = {len(dm_.subject_nr.unique)} (n = {len(dm_)} trials)')
+
     return dm_
 
 # Plot traces
@@ -838,6 +840,11 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
     # Suppress warnings because it's annoying
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
+    
+    # Exclude nan pupil-changes (slopes and means) to be consistent with the MLM analyses
+    dm_1 = dm_c.pupil_change != NAN
+    dm_2 = dm_c.slope_change != NAN
+    dm_c = dm_1 << dm_2
     
     # Group per participant 
     dm_cor = ops.group(dm_c, by=[dm_c.subject_nr])
@@ -1318,8 +1325,13 @@ def create_img(dm):
         fig.savefig(f'img/{vivid}/S{s}_{t}_{vivid}.png')
         plt.close()
 
-def dist_checks_wilcox(dm):
+def dist_checks_wilcox(dm_to_check):
     """Non-parametric paired t-tests with Wilcoxon signed-rank test."""
+    # Exclude nan pupil-changes (slopes and means) to be consistent with the MLM analyses
+    dm_1 = dm_to_check.pupil_change != NAN
+    dm_2 = dm_to_check.slope_change != NAN
+    dm = dm_1 << dm_2
+    
     for cat, sdm_ctrl in ops.split(dm.category):
         if cat == 'Non-dynamic':
             dm_sub = sdm_ctrl.pupil_change != NAN
@@ -1331,7 +1343,7 @@ def dist_checks_wilcox(dm):
                     dm_sub[col] = reduce(dm_sub[col]) # Compute the mean per subtype 
         else:
             dm_sub = sdm_ctrl.slope_change != NAN
-        print(f"\n{cat} (n = {len(dm_sub[dm_sub.suptype == 'light'])})")
+        print(f"\n{cat} (n = {len(dm_sub[dm_sub.suptype == 'light'])}) (light vs. dark)")
         print(f"Blinks: {wilcoxon(dm_sub.n_blinks[dm_sub.suptype == 'light'], dm_sub.n_blinks[dm_sub.suptype == 'dark'])}")
         print(dm_sub.n_blinks[dm_sub.suptype == 'light'].mean, dm_sub.n_blinks[dm_sub.suptype == 'dark'].mean)
         print(dm_sub.n_blinks[dm_sub.suptype == 'light'].std, dm_sub.n_blinks[dm_sub.suptype == 'dark'].std)
@@ -1343,3 +1355,4 @@ def dist_checks_wilcox(dm):
         print(f"Arousal: {wilcoxon(dm_sub.emotional_intensity[dm_sub.suptype == 'light'], dm_sub.emotional_intensity[dm_sub.suptype == 'dark'])}")
         print(dm_sub.emotional_intensity[dm_sub.suptype == 'light'].mean, dm_sub.emotional_intensity[dm_sub.suptype == 'dark'].mean)
         print(dm_sub.emotional_intensity[dm_sub.suptype == 'light'].std, dm_sub.emotional_intensity[dm_sub.suptype == 'dark'].std)
+

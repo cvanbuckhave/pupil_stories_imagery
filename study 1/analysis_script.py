@@ -92,7 +92,7 @@ main_plots(dm_, 'subtypes')
 # =============================================================================
 # 1. Mixed Linear Models on the mean pupil slopes 
 # A. Mean pupil slopes per condition (dynamic condition only)
-md1 = lm_slope(dm_, formula='slope_pupil ~ type', re_formula = '1 + type')
+md1 = lm_slope(dm_, formula='slope_pupil ~ type', re_formula = '1')
 check_assumptions(md1, 'M1') # OK
 
 print(md1.summary())
@@ -100,7 +100,7 @@ md1.tvalues, md1.pvalues = np.round(md1.tvalues, 3), np.round(md1.pvalues, 3)
 print(f'z = {md1.tvalues[1]}, p = {md1.pvalues[1]}, n = {len(md1.random_effects)}')
 
 # B. Test the interaction with the vividness ratings
-md2 = lm_slope(dm_, formula='slope_pupil ~ type * response_vivid', re_formula = '1 + type')
+md2 = lm_slope(dm_, formula='slope_pupil ~ type * response_vivid', re_formula = '1')
 check_assumptions(md2, 'M2') # OK
 
 print(md2.summary())
@@ -111,7 +111,7 @@ print(f'Interaction: z = {md2.tvalues[3]}, p = {md2.pvalues[3]}, n = {len(md2.ra
 compare_models(md1, md2, 2) # taking into account the interaction with vividness ratings adds to the model
 print(md1.aic < md2.aic)
 
-md3 = lm_slope(dm_, formula='slope_change ~ mean_vivid', re_formula = '1', slope_change=True)
+md3 = lm_slope(dm_, formula='slope_change ~ mean_vivid', re_formula = '1', slope_change=True, reml=True)
 check_assumptions(md3, 'M3') # OK IF WE DON'T PUT RANDOM SLOPES FOR MEAN VIVID 
 
 print(md3.summary())
@@ -166,16 +166,19 @@ for subtype, sdm in ops.split(dm_.subtype[dm_.subtype!='dynamic']):
     resultat = f'z = {m.tvalues[1]}, p = {m.pvalues[1]}, n = {len(m.random_effects)}'
     print(resultat)
     res.append(resultat)
-    
+
 # 3. Correlations 
-    # Correlations between the mean VVIQ scores and mean SUIS scores
+# Correlations between the mean VVIQ scores and mean SUIS scores
 test_correlation(dm_, x='VVIQ', y='SUIS', alt='greater', lab='', plot_=False)
-    # Big great plot
+
+# Big great plot
 plot_correlations(dm_, what='all')
-    # Between ratings
+
+# Correlations between subjective ratings
 test_correlation(dm_, x='mean_vivid', y='mean_effort', alt='less', lab='', plot_=False)
 test_correlation(dm_, x='mean_vivid', y='mean_emo', alt='greater', lab='', plot_=False)
 test_correlation(dm_, x='mean_vivid', y='mean_val', alt='greater', lab='', plot_=False)
+
     # Per subtype
 plot_correlations(dm_, what='by-subtype')
 
@@ -216,14 +219,13 @@ supp_plots(dm_ctrl, what='aphantasia')
 
 supp_plots(dm_ctrl, what='effort_vivid') 
 supp_plots(dm_ctrl, what='emo_vivid') 
-supp_plots(dm_ctrl, what='changes') 
 supp_plots(dm_ctrl, what='time') 
 
 # Individual effects (point plots)
 # 1. Mean pupil size per condition and per participant (all conditions)
 plt.figure(figsize=(30,10))
 ax = plt.subplot(1,1,1)
-dm = dm_.subtype != 'dynamic'
+dm = dm_ctrl.subtype != 'dynamic'
 dm = dm.pupil_change != NAN
 dm.mean_pupil_change = ''
 for s, sdm in ops.split(dm.subject_nr):
@@ -277,7 +279,7 @@ print(f'{round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
 for subtype, name in zip(['happy', 'lotr', 'neutral'], ['Birthday Party', 'Lord of the Rings', 'Neutral']):
     fig = plt.figure(figsize=(40,20))
     i=1;plt.suptitle(name, fontsize=60)
-    dm_sub = dm_.subtype != 'dynamic'
+    dm_sub = dm_ctrl.subtype != 'dynamic'
     dm_sub = dm_sub.subtype == subtype
     for thresh in np.arange(1, 5, 0.5):
         sdm = dm_sub.mean_vivid >= thresh
@@ -310,7 +312,7 @@ for subtype, name in zip(['happy', 'lotr', 'neutral'], ['Birthday Party', 'Lord 
 # 4. Plot the mean slopes per condition and per participant (dynamic only)
 plt.figure(figsize=(20,10))
 ax = plt.subplot(1,1,1)
-dm = dm_.subtype == 'dynamic'
+dm = dm_ctrl.subtype == 'dynamic'
 dm = dm.slope_change != NAN
 dm = ops.sort(dm, by=dm.slope_change)
 list_order1 = list(dict.fromkeys(dm.subject_nr))
@@ -343,7 +345,7 @@ print(f'{round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
 
 # 6. Mean pupil slope changes per participant per mean vivid
 fig = plt.figure(figsize=(40,20));i=1
-dm_sub = dm_.subtype == 'dynamic';plt.suptitle('Dynamic', fontsize=60)
+dm_sub = dm_ctrl.subtype == 'dynamic';plt.suptitle('Dynamic', fontsize=60)
 for thresh in np.arange(1, 5, 0.5):
     sdm = dm_sub.mean_vivid >= thresh
     ax = plt.subplot(2,4,i)
