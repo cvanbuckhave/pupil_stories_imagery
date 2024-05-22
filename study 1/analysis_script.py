@@ -155,7 +155,8 @@ for subtype, sdm in ops.split(dm_.subtype[dm_.subtype!='dynamic']):
     print(subtype)
     # Test the interaction with the vividness ratings
     m = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid', re_formula='1 + mean_vivid', pupil_change=True, reml=True)
-    
+    #m = lm_pupil(sdm, formula = 'mean_pupil ~ type * response_vivid', re_formula='1 + type', pupil_change=False, reml=True)
+
     # Check assumptions
     check_assumptions(m, subtype) 
     
@@ -171,13 +172,28 @@ for subtype, sdm in ops.split(dm_.subtype[dm_.subtype!='dynamic']):
 # Correlations between the mean VVIQ scores and mean SUIS scores
 test_correlation(dm_, x='VVIQ', y='SUIS', alt='greater', lab='', plot_=False)
 
+# Other main correlations
+for s in ['dynamic', set(['happy', 'lotr', 'neutral'])]:
+    dm_cor = dm_.subtype == s
+    if s == 'dynamic':
+        dm_cor = dm_cor.slope_change != NAN
+        var = 'slope_change'
+    else:
+        dm_cor = dm_cor.pupil_change != NAN
+        var = 'pupil_change'
+    print(s)
+    test_correlation(dm_cor, x='response_vivid', y='VVIQ', alt='greater', lab='', plot_=False)
+    test_correlation(dm_cor, x='response_vivid', y='SUIS', alt='greater', lab='', plot_=False)
+    test_correlation(dm_cor, x=var, y='VVIQ', alt='greater', lab='', plot_=False)
+    test_correlation(dm_cor, x=var, y='SUIS', alt='greater', lab='', plot_=False)
+
 # Big great plot
 plot_correlations(dm_, what='all')
 
 # Correlations between subjective ratings
-test_correlation(dm_, x='mean_vivid', y='mean_effort', alt='less', lab='', plot_=False)
-test_correlation(dm_, x='mean_vivid', y='mean_emo', alt='greater', lab='', plot_=False)
-test_correlation(dm_, x='mean_vivid', y='mean_val', alt='greater', lab='', plot_=False)
+# test_correlation(dm_, x='mean_vivid', y='mean_effort', alt='less', lab='', plot_=False)
+# test_correlation(dm_, x='mean_vivid', y='mean_emo', alt='greater', lab='', plot_=False)
+# test_correlation(dm_, x='mean_vivid', y='mean_val', alt='greater', lab='', plot_=False)
 
     # Per subtype
 plot_correlations(dm_, what='by-subtype')
@@ -256,17 +272,17 @@ plt.tight_layout()
 plt.show()
 
     # How many participants with at least one positive score?
-N = len(dm.subject_nr.unique)
-n = len(set(dm.subject_nr[dm.pupil_change > 0]))
+N = len(dm_ctrl.subject_nr.unique)
+n = len(set(dm_ctrl.subject_nr[dm_ctrl.pupil_change > 0]))
 print(f'{round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
 
     # How many positive scores per participant (among those who have at least 1)?
-list_p = dm.subject_nr[dm.pupil_change > 0]
+list_p = dm_ctrl.subject_nr[dm_ctrl.pupil_change > 0]
 n_counts = Counter(list_p)
 print(Counter(n_counts.values()))
 
     # How many negative scores per participant (among those who have at least 1)?
-list_n = dm.subject_nr[dm.pupil_change <= 0]
+list_n = dm_ctrl.subject_nr[dm_ctrl.pupil_change <= 0]
 n_counts = Counter(list_n)
 print(Counter(n_counts.values()))
 

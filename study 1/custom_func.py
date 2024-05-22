@@ -25,7 +25,7 @@ import scipy.stats as stats
 import statsmodels.api as sm
 import pingouin as pg
 from statsmodels.formula.api import mixedlm
-from scipy.stats import spearmanr, shapiro, kstest, wilcoxon, mannwhitneyu
+from scipy.stats import spearmanr, shapiro, kstest, wilcoxon
 from statsmodels.stats.diagnostic import het_white
 from scipy.stats.distributions import chi2
 from collections import Counter
@@ -259,6 +259,8 @@ def merge_dm_df(dm_to_merge, df):
     print(f'{len(dm.subject_nr[dm.aphantasia == "Yes"].unique)} participant with VVIQ < 2 {dm.subject_nr[dm.aphantasia == "Yes"].unique}.')
     
     # Print descriptives
+    print(f'Vividness: M = {np.round(dm.mean_vivid.mean,3)}, SD = {np.round(dm.mean_vivid.std,3)}, n = {len(dm.subject_nr.unique)}.')
+
     for type_, sdm in ops.split(dm.type):
         print('\n', type_)    
         print(f'On average, participants reported that imagining the {type_} stories necessitated "... effort" (M = {np.round(sdm.response_effort.mean,3)}, SD = {np.round(sdm.response_effort.std,3)}, n = {len(sdm)}),')
@@ -267,6 +269,7 @@ def merge_dm_df(dm_to_merge, df):
         print(f'The mean accuracy for this brightness condition was {np.round(sdm.correct_answer.mean,2)} (SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}).')
 
     print('Mean accuracy %:', np.round(dm.correct_answer.mean, 2), np.round(dm.correct_answer.std, 2))
+    print(Counter(Counter(dm.subject_nr[dm.correct_answer == 0]).values()))
     print('Language:', len(dm.subject_nr[dm.response_lang=='English'].unique), len(dm.subject_nr[dm.response_lang=='Dutch'].unique))
 
     # Print descriptives
@@ -835,7 +838,7 @@ def check_assumptions(model, sup_title=''):
     warnings.filterwarnings("default", category=UserWarning)
 
 
-def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVIQ', plot_=True, fig=False):
+def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVIQ', plot_=True, fig=False, fs=30):
     """Test the correlations between pupil measures and questionnaire measures using Spearman's correlation."""
     # Suppress warnings because it's annoying
     warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -873,7 +876,11 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
     else:
         pval = np.round(pval, 3)
         
-    res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}, n = {N}'
+
+    if plot_ == False:
+        res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}, n = {N}'
+    else:
+        res = fr'{chr(961)} = {round(cor.correlation, 3)}, p = {pval}'
     print(res)
     
     # Plot the correlations (linear regression model fit)
@@ -881,7 +888,9 @@ def test_correlation(dm_c, x, y, alt='two-sided', pcorr=1, color='red', lab='VVI
         label = fr'{lab}: {res}'
     else:
         label = ''
-        
+    
+    plt.rcParams['font.size'] = fs
+
     if plot_ == True:
         if fig == True:
             plt.figure(figsize=(12,10))
@@ -1031,38 +1040,53 @@ def main_plots(dm_to_plot, which):
         dm_sub0 = dm_df[dm_df.subtype == 'dynamic']
         dm_sub = dm_sub0[dm_sub0.slope_pupil != '']
         dm_sub = dm_sub[dm_sub.slope_change != '']
-        fig, axes = plt.subplots(1, 3, figsize=(35,10))
-        fig.subplots_adjust(wspace=0.5)
-        ax=plt.subplot(1,3,1)
+        fig, axes = plt.subplots(1, 4, figsize=(47,12))
+        fig.subplots_adjust(wspace=0.3)
+        ax=plt.subplot(1,4,1)
         plot_bars(dm_sub, x='type', y='slope_pupil', hue=None, order=['light_dark', 'dark_light'], hue_order=None, ylab='Pupil-size slopes (a.u.)', pal=palette[0:2], xlab='Condition', title=None, fig=False, alpha=0.7)
         plt.text(s='B', x=-1.1, y=0.025, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright to dark', 'Dark to bright'])
-        ax=plt.subplot(1,3,2)
+        ax=plt.subplot(1,4,2)
         plot_bars(dm_sub, x='response_vivid', y='slope_pupil', hue='type', hue_order=['light_dark', 'dark_light'], ylab='Pupil-size slopes (a.u.)', pal=palette[0:2], xlab='Trial-by-trial vividness ratings', title=None, fig=False, alpha=0.7)
         handles, labels = ax.get_legend_handles_labels()
         plt.legend(handles=handles, labels=['Bright to dark', 'Dark to bright'], frameon=False, loc='lower right')
         plt.text(s='C', x=-1.6, y=0.45, fontsize=65)
-        ax=plt.subplot(1,3,3)
-        plot_bars(dm_sub, x='mean_vivid', y='slope_change', ylab='Pupil-size slope differences (a.u.)\n(Bright to dark - Dark to bright)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
+        ax=plt.subplot(1,4,3)
+        plot_bars(dm_sub, x='mean_vivid', y='slope_change', ylab='Pupil-size slope differences (a.u.)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
         plt.text(s='D', x=-2.5, y=0.85, fontsize=65)
+        ax=plt.subplot(1,4,4)
+        plt.text(s='E', x=-1, y=7.65, fontsize=65)
+        dm_cor = dm_to_plot.subtype == 'dynamic'
+        dm_cor = dm_cor.slope_change != NAN
+        test_correlation(dm_cor, y='VVIQ', x='slope_change', alt='greater', lab='VVIQ', color='green', fs=35)
+        test_correlation(dm_cor, y='SUIS', x='slope_change', alt='greater', lab='SUIS', color='violet', fs=35)
+        plt.xlabel('Pupil-size slope differences (a.u.)');plt.ylabel('Mean questionnaire scores');plt.ylim([0.9, 7]);plt.yticks(range(1, 6))
         plt.show()
         
     # Mean pupil-size and pupil-size differences for all non-dynamic subtypes
     elif which == 'non-dynamic':
         dm_sub = dm_df[dm_df.subtype != 'dynamic']
-        fig, axes = plt.subplots(1, 3, figsize=(35,10))
-        fig.subplots_adjust(wspace=0.5)
-        ax=plt.subplot(1,3,1)
+        fig, axes = plt.subplots(1, 4, figsize=(47,12))
+        fig.subplots_adjust(wspace=0.3)
+        ax=plt.subplot(1,4,1)
         plot_bars(dm_sub, x='type', y='mean_pupil', hue=None, order=['light', 'dark'], hue_order=None, ylab='Pupil-size means (a.u.)', pal=palette[0:2], xlab='Condition', title=None, fig=False, alpha=0.7)
-        plt.text(s='B', x=-1.1, y=95, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
-        ax=plt.subplot(1,3,2)
+        plt.text(s='B', x=-1.0, y=95, fontsize=65);plt.xticks(ticks=range(0,2), labels=['Bright', 'Dark'])
+        ax=plt.subplot(1,4,2)
         plot_bars(dm_sub, x='response_vivid', y='mean_pupil', hue='type', hue_order=['light', 'dark'], ylab='Pupil-size means (a.u.)', pal=palette[0:2], xlab='Trial-by-trial vividness ratings', title=None, fig=False, alpha=0.7)
         handles, labels = ax.get_legend_handles_labels()
         plt.legend(handles=handles, labels=['Bright', 'Dark'], frameon=False, loc='lower right')
         plt.text(s='C', x=-1.6, y=850, fontsize=65)
-        ax=plt.subplot(1,3,3)
-        plot_bars(dm_sub, x='mean_vivid', y='pupil_change', ylab='Pupil-size mean differences\n(a.u.) (Dark - Bright)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
-        plt.text(s='D', x=-3.0, y=500, fontsize=65)
+        ax=plt.subplot(1,4,3)
+        plot_bars(dm_sub, x='mean_vivid', y='pupil_change', ylab='Pupil-size mean differences (a.u.)', pal='crest', xlab='Mean vividness ratings', title=None, fig=False)
+        plt.text(s='D', x=-2.5, y=500, fontsize=65)
+        ax=plt.subplot(1,4,4)
+        plt.text(s='E', x=-1200, y=7.15, fontsize=65)
+        dm_cor = dm_to_plot.subtype != 'dynamic'
+        dm_cor = dm_cor.pupil_change != NAN
+        test_correlation(dm_cor, y='VVIQ', x='pupil_change', alt='greater', lab='VVIQ', color='green', fs=35)
+        test_correlation(dm_cor, y='SUIS', x='pupil_change', alt='greater',lab='SUIS', color='violet', fs=35)
+        plt.xlabel('Pupil-size mean differences (a.u.)');plt.ylabel('Mean questionnaire scores');plt.ylim([0.9, 7]);plt.yticks(range(1, 6))
         plt.show()
+        
         
     # Mean pupil-size and pupil-size differences per subtypes
     elif which == 'subtypes':
@@ -1343,7 +1367,9 @@ def dist_checks_wilcox(dm_to_check):
                     dm_sub[col] = reduce(dm_sub[col]) # Compute the mean per subtype 
         else:
             dm_sub = sdm_ctrl.slope_change != NAN
+        
         print(f"\n{cat} (n = {len(dm_sub[dm_sub.suptype == 'light'])}) (light vs. dark)")
+        print(f"Vividness: M = {np.round(dm_sub.mean_vivid[dm_sub.suptype == 'light'].mean,3)}, SD = {np.round(dm_sub.mean_vivid[dm_sub.suptype == 'light'].std,3)}, n = {len(dm_sub[dm_sub.suptype == 'light'])}.")
         print(f"Blinks: {wilcoxon(dm_sub.n_blinks[dm_sub.suptype == 'light'], dm_sub.n_blinks[dm_sub.suptype == 'dark'])}")
         print(dm_sub.n_blinks[dm_sub.suptype == 'light'].mean, dm_sub.n_blinks[dm_sub.suptype == 'dark'].mean)
         print(dm_sub.n_blinks[dm_sub.suptype == 'light'].std, dm_sub.n_blinks[dm_sub.suptype == 'dark'].std)
