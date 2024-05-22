@@ -200,6 +200,14 @@ def merge_dm_df(dm_to_merge, df):
         print(f'induced "... emotions" (M = {np.round(sdm.emotional_intensity.mean,3)}, SD = {np.round(sdm.emotional_intensity.std,3)}, n = {len(sdm)})')
         print(f'and were imagined as "..." (M = {np.round(sdm.response_vivid.mean,3)}, SD = {np.round(sdm.response_vivid.std,3)}, n = {len(sdm)}).')
         print(f'The mean accuracy for this brightness condition was {np.round(sdm.correct_answer.mean,2)} (SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}).')
+    
+    # Print descriptives (experiment)
+    for sup_, sdm in ops.split(dm.suptype):
+        print('\n', sup_)    
+        print(f'Effort: M = {np.round(sdm.response_effort.mean,3)}, SD = {np.round(sdm.response_effort.std,3)}, n = {len(sdm)}')
+        print(f'Emotional intensity: M = {np.round(sdm.emotional_intensity.mean,3)}, SD = {np.round(sdm.emotional_intensity.std,3)}, n = {len(sdm)}')
+        print(f'Vividness: M = {np.round(sdm.response_vivid.mean,3)}, SD = {np.round(sdm.response_vivid.std,3)}, n = {len(sdm)}')
+        print(f'Accuracy: {np.round(sdm.correct_answer.mean,2)}, SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}')
 
     print('Mean accuracy %:', np.round(dm.correct_answer.mean, 2), np.round(dm.correct_answer.std, 2))
 
@@ -619,7 +627,7 @@ def compare_models(model1, model2, ddf):
         print(f'The simpler model is not the better one (LLF M1: {round(model1.llf,3)}, LLF M2: {round(model2.llf,3)}, ratio = {round(ratio,3)}, df = {ddf}, p = {round(p,4)})')
 
 
-def check_assumptions(model):
+def check_assumptions(model, suptype):
     """Check assumptions for normality of residuals and homoescedasticity.
     Code from: https://www.pythonfordatascience.org/mixed-effects-regression-python/#assumption_check"""
     plt.rcParams['font.size'] = 40
@@ -627,7 +635,7 @@ def check_assumptions(model):
     fig = plt.figure(figsize = (25, 16))
     warnings.filterwarnings("ignore", category=FutureWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
-    fig.suptitle(f'{model.model.formula} (n = {model.model.n_groups})')
+    fig.suptitle(f'{suptype}: {model.model.formula} (n = {model.model.n_groups})')
     # Normality of residuals
     ax1 = plt.subplot(2,2,1)
     sns.distplot(model.resid, hist = True, kde_kws = {"fill" : True, "lw": 4}, fit = stats.norm)
@@ -775,7 +783,14 @@ def dist_checks_wilcox(dm, suptype):
     for col in dm_sub.column_names:
         if type(dm_sub[col]) != datamatrix._datamatrix._mixedcolumn.MixedColumn:
             dm_sub[col] = reduce(dm_sub[col]) # Compute the mean per subtype 
-       
+    
+    # Print descriptives (experiment)
+    for sup_, sdm in ops.split(dm_sub.suptype):
+        print(f'\nEffort: M = {np.round(sdm.response_effort.mean,3)}, SD = {np.round(sdm.response_effort.std,3)}, n = {len(sdm)}')
+        print(f'Emotional intensity: M = {np.round(sdm.emotional_intensity.mean,3)}, SD = {np.round(sdm.emotional_intensity.std,3)}, n = {len(sdm)}')
+        print(f'Vividness: M = {np.round(sdm.response_vivid.mean,3)}, SD = {np.round(sdm.response_vivid.std,3)}, n = {len(sdm)}')
+        print(f'Accuracy: {np.round(sdm.correct_answer.mean,2)}, SD = {np.round(sdm.correct_answer.std,2)}, n = {len(sdm)}\n')
+
     print('Between participants:')
     
     print(f"Mean vividness per pupil-size changes polarity: {mannwhitneyu(dm_sub.mean_vivid[dm_sub.pupil_change>0], dm_sub.mean_vivid[dm_sub.pupil_change<0], alternative='greater')}")

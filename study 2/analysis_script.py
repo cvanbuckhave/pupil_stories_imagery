@@ -26,7 +26,7 @@ import time_series_test as tst
 
 # Define useful variables
 cwd=os.getcwd() # auto
-cwd='C:/Users/cvanb/Desktop/visual_imagery_pupil/study 2/' # manual
+cwd='C:/Users/cvanb/Desktop/visual_imagery_pupil/study 2' # manual
 datafolder=cwd+'/data/' # the folder where the EDF files are
 questfile='/results-survey.csv' # the questionnaire data
 
@@ -83,13 +83,9 @@ dm_df = convert.to_pandas(dm_ctrl)
 # =============================================================================
 # Mixed linear models on the mean pupil sizes
 for s, sdm in ops.split(dm_ctrl.suptype):
-    s = 'rabbit'
-    print(s)  
-    sdm = dm_ctrl.suptype == s
-
     # A. Main effect of brightness condition 
     m1 = lm_pupil(sdm, formula = 'mean_pupil ~ type', re_formula = '1 + type + trialid')
-    check_assumptions(m1) # OK
+    check_assumptions(m1, s) # OK
     
     print(m1.summary())
     m1.tvalues, m1.pvalues = np.round(m1.tvalues, 3), np.round(m1.pvalues, 3)
@@ -97,7 +93,7 @@ for s, sdm in ops.split(dm_ctrl.suptype):
 
     # B. Interaction with vividness
     m2 = lm_pupil(sdm, formula = 'mean_pupil ~ type * response_vivid', re_formula = '1 + type + trialid')
-    check_assumptions(m2) # OK
+    check_assumptions(m2, s) # OK
     
     print(m2.summary())
     m2.tvalues, m2.pvalues = np.round(m2.tvalues, 3), np.round(m2.pvalues, 3)
@@ -114,23 +110,26 @@ for s, sdm in ops.split(dm_ctrl.suptype):
         re_formula = '1 + mean_vivid + version'
     else:
         re_formula = '1 + version' # messes with assumption checks if add 'mean_vivid'
+        
     m3 = lm_pupil(sdm, formula = 'pupil_change ~ mean_vivid', re_formula = re_formula, pupil_change=True)    
-    check_assumptions(m3) # OK
+    check_assumptions(m3, s) # OK
     
     print(m3.summary())
     m3.tvalues, m3.pvalues = np.round(m3.tvalues, 3), np.round(m3.pvalues, 3)
     print(f'z = {m3.tvalues[1]}, p = {m3.pvalues[1]}, n = {len(m3.random_effects)}')
     
+    test_correlation(sdm, x='mean_vivid', y='pupil_change', alt='greater', lab='Ratings', fig=False)
+
     # D. Add covariates
     dist_checks_wilcox(sdm, s)
 
     for variable in ['emo_changes', 'effort_changes']:
         m_sup = lm_pupil(sdm, formula = f'pupil_change ~ mean_vivid + {variable}', re_formula = re_formula, pupil_change=True)  
-        check_assumptions(m_sup) # OK
+        check_assumptions(m_sup, s) # OK
         
         print(m_sup.summary())
     
-        m_sup.tvalues, m_sup.pvalues = np.round(m_sup.tvalues, 3), np.round(m_sup.pvalues, 3)
+        m_sup.tvalues, m_sup.pvalues = np.round(m_sup.tvalues, 3), np.round(m_sup.pvalues, 4)
         print(f'z = {m_sup.tvalues[1]}, p = {m_sup.pvalues[1]}, n = {len(m_sup.random_effects)}')
         print(f'z = {m_sup.tvalues[2]}, p = {m_sup.pvalues[2]}, n = {len(m_sup.random_effects)}')
 
@@ -142,6 +141,10 @@ for s, sdm in ops.split(dm_ctrl.suptype):
 dm_cor = dm_ctrl.SUIS != ''
 test_correlation(dm_cor, x='SUIS', y='VVIQ', alt='greater', lab='Ratings', fig=False)
 
+test_correlation(dm_cor, x='mean_vivid', y='mean_emo', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='mean_val', alt='greater', lab='Ratings', fig=False)
+test_correlation(dm_cor, x='mean_vivid', y='mean_effort', alt='less', lab='Ratings', fig=False)
+
 for sup in ['rabbit', 'self']:
     print(sup)
     dm_cor_sub = dm_cor.suptype == sup
@@ -152,10 +155,6 @@ for sup in ['rabbit', 'self']:
     test_correlation(dm_cor_sub, x='pupil_change', y='VVIQ', alt='greater', lab='Ratings', fig=False)
     test_correlation(dm_cor_sub, x='pupil_change', y='SUIS', alt='greater', lab='Ratings', fig=False)
     
-test_correlation(dm_cor, x='mean_vivid', y='mean_emo', alt='greater', lab='Ratings', fig=False)
-test_correlation(dm_cor, x='mean_vivid', y='mean_val', alt='greater', lab='Ratings', fig=False)
-test_correlation(dm_cor, x='mean_vivid', y='mean_effort', alt='less', lab='Ratings', fig=False)
-
 # =============================================================================
 # Visualisation: Group effects (barplots)
 # =============================================================================
@@ -268,7 +267,7 @@ for type_ in ['rabbit', 'self']:
     plt.tight_layout()
     plt.show()
 
-individual_profile(dm_df, 30) # aphantasia + v1
+#individual_profile(dm_df, 30) # aphantasia + v1
 
 # =============================================================================
 # Aphantasia (descriptives)
@@ -337,13 +336,4 @@ N = len(dm_ctrl.subject_nr.unique)
 n = len(set(dm_ctrl.subject_nr[dm_ctrl.pupil_change > 0]))
 print(f'{round(n/N * 100, 2)}% ({n}/{N}) of positive changes')
 
-# How many positive scores per participant (among those who have at least 1)?
-list_p = dm.subject_nr[dm.pupil_change > 0]
-n_counts = Counter(list_p)
-print(Counter(n_counts.values()))
-
-# How many negative scores per participant (among those who have at least 1)?
-list_n = dm.subject_nr[dm.pupil_change <= 0]
-n_counts = Counter(list_n)
-print(Counter(n_counts.values()))
 
