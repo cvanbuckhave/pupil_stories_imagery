@@ -272,6 +272,28 @@ def check_blinks(dm_blinks, new=False):
     plt.xticks(fontsize=20)
     plt.tight_layout()
     plt.show()
+    
+    # Check fixations 
+    plt.figure(figsize=(15,8));plt.suptitle('Gaze / eye position', fontsize=35)
+    plt.subplot(1,2,1);plt.title('Bright stories', fontsize=30)
+    x = np.array(dm_blinks.fixxlist_target[dm_blinks.type=='light'])
+    y = np.array(dm_blinks.fixylist_target[dm_blinks.type=='light'])
+    x = x.flatten()
+    y = y.flatten()
+    plt.hexbin(x, y, gridsize=25)
+    plt.axhline(500, color='white');plt.axvline(500, color='white')
+    plt.yticks(fontsize=25);plt.xticks(fontsize=25);plt.xlabel('x', fontsize=25);plt.ylabel('y', fontsize=25)
+    plt.subplot(1,2,2);plt.title('Dark stories', fontsize=30)
+    x = np.array(dm_blinks.fixxlist_target[dm_blinks.type=='dark'])
+    y = np.array(dm_blinks.fixylist_target[dm_blinks.type=='dark'])
+    x = x.flatten()
+    y = y.flatten()
+    plt.hexbin(x, y, gridsize=25)
+    plt.axhline(500, color='white');plt.axvline(500, color='white')
+    plt.yticks(fontsize=25);plt.xticks(fontsize=25);plt.xlabel('x', fontsize=25);plt.ylabel('y', fontsize=25)
+    plt.tight_layout()
+    plt.show()
+    
     return dm_blinks
 
 # Preprocessing and removing outlier trials
