@@ -1,0 +1,5 @@
+,mean_vivid,mean_vivid,mean_vivid,mean_vivid,mean_vivid,mean_vivid,mean_vivid,mean_vivid,mean_effort,mean_effort,mean_effort,mean_effort,mean_effort,mean_effort,mean_effort,mean_effort,mean_emo,mean_emo,mean_emo,mean_emo,mean_emo,mean_emo,mean_emo,mean_emo,pupil_change,pupil_change,pupil_change,pupil_change,pupil_change,pupil_change,pupil_change,pupil_change
+,count,mean,std,min,25%,50%,75%,max,count,mean,std,min,25%,50%,75%,max,count,mean,std,min,25%,50%,75%,max,count,mean,std,min,25%,50%,75%,max
+suptype,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+rabbit,61.0,3.246,0.835,1.0,3.0,3.5,3.5,4.5,61.0,-0.213,0.744,-2.0,-0.5,0.0,0.0,1.5,61.0,1.672,0.689,0.0,1.5,1.5,2.0,3.0,60.0,181.642,698.835,-1595.146,-251.379,154.894,636.178,1680.63
+self,58.0,3.31,0.888,1.0,3.0,3.5,4.0,5.0,58.0,-0.293,0.833,-2.0,-1.0,0.0,0.0,1.0,58.0,1.5,0.778,0.0,1.125,1.5,2.0,3.0,56.0,155.525,534.382,-898.843,-157.059,95.161,503.347,1288.886
